@@ -1,5 +1,7 @@
 // Owner: simulation
 //
+import { PENTLAND_LETTERS } from "./realPlans";
+
 // Types for public/ucr/campus.json (built by scripts/build-campus-data.mjs)
 // and the rules that turn OSM tags into heights and building styles.
 
@@ -113,17 +115,31 @@ export function hash01(s: string): number {
  * Loads the saved campus. If it hasn't been saved yet, downloads it from
  * OpenStreetMap and (in dev) saves it to public/ucr/campus.json for next time.
  */
+/**
+ * OpenStreetMap leaves most Pentland Hills buildings unnamed. The community
+ * map identifies all of them (A-Q), so tag them here.
+ */
+export function fixHousing(data: CampusData): CampusData {
+  for (const b of data.buildings) {
+    if (PENTLAND_LETTERS[b.id]) {
+      b.housing = "Pentland Hills";
+      b.housingKind = "residence_hall";
+    }
+  }
+  return data;
+}
+
 export async function loadCampus(onStatus?: (s: string) => void): Promise<CampusData> {
   const res = await fetch("/ucr/campus.json").catch(() => null);
   if (res?.ok) {
     try {
-      return await res.json();
+      return fixHousing(await res.json());
     } catch {
       // fall through and re-download
     }
   }
   const { downloadCampus } = await import("./osmToCampus");
-  const data = await downloadCampus(onStatus);
+  const data = fixHousing(await downloadCampus(onStatus));
   fetch("/api/sim/campus", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

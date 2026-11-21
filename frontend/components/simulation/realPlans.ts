@@ -33,3 +33,107 @@ export function realPlansFor(buildingName: string): Map<number, RealPlan> {
   for (const p of REAL_PLANS) if (p.building === buildingName) m.set(p.floor, p);
   return m;
 }
+
+// ---------- residence halls: UCR Housing Services community maps ----------
+//
+// Source: "Residence Hall Community Map" PDFs from housing.ucr.edu
+// (auxiliarydocs.ucr.edu/housing/map/community-map_AI.pdf, _LO.pdf, _PH.pdf),
+// rendered at 220 dpi into public/ucr/floorplans/hall-*.png. They show the
+// ground floor: lettered wings, lobbies, stairs, elevators, exits, laundry,
+// lounges. The maps are schematic, so each is fitted to the 3D footprint:
+//  - Aberdeen-Inverness: the map is drawn with north to the left (east up),
+//    so the fit is rotated 90 degrees.
+//  - Lothian: fitted per building (East Lothian, West Lothian, restaurant).
+//  - Pentland Hills: one fit for all buildings; each building gets its letter.
+
+/** x = a*px + b*py + c,  z = d*px + e*py + f  (map pixels -> scene metres). */
+export type Affine = [number, number, number, number, number, number];
+
+export type HallMap = {
+  hall: string;
+  /** OSM building ids this fit applies to; omitted = every building of the hall. */
+  buildings?: string[];
+  img: string;
+  size: [number, number];
+  affine: Affine;
+  /** Wing letters as printed on the map: [letter, px, py]. */
+  anchors: [string, number, number][];
+  /** The published double-room layout, for the room a student is in. */
+  roomPlan?: { img: string; crop: [number, number, number, number] };
+};
+
+/** Fit that maps a pixel box onto a scene box (north-up maps). */
+export function boxAffine(px0: number, py0: number, px1: number, py1: number, x0: number, z0: number, x1: number, z1: number): Affine {
+  const sx = (x1 - x0) / (px1 - px0), sz = (z1 - z0) / (py1 - py0);
+  return [sx, 0, x0 - px0 * sx, 0, sz, z0 - py0 * sz];
+}
+
+const AI_ROOM = { img: "/ucr/floorplans/ai-double.jpg", crop: [36, 90, 418, 420] as [number, number, number, number] };
+const LO_ROOM = { img: "/ucr/floorplans/lothian-double.jpg", crop: [56, 98, 448, 446] as [number, number, number, number] };
+
+export const HALL_MAPS: HallMap[] = [
+  {
+    hall: "Aberdeen-Inverness",
+    img: "/ucr/floorplans/hall-ai.png",
+    size: [2420, 1870],
+    // Map up = east, map right = south. Wing tips and the central spine line
+    // up with the footprint to within a few metres.
+    affine: [0, -130 / 1161, 285 + (498 * 130) / 1161, 163 / 1459.4, 0, -603 - (120.6 * 163) / 1459.4],
+    anchors: [["A", 222, 650], ["A", 212, 1517], ["B", 552, 663], ["B", 463, 1560], ["C", 848, 663], ["D", 1125, 663], ["D", 1204, 1560], ["E", 1481, 650], ["E", 1490, 1517]],
+    roomPlan: AI_ROOM,
+  },
+  {
+    hall: "Lothian",
+    buildings: ["w488204949"], // East Lothian: the X of wings D, E, F around G
+    img: "/ucr/floorplans/hall-lo.png",
+    size: [2420, 1870],
+    affine: boxAffine(1180, 431, 2281, 958, 466, -312, 594, -243),
+    anchors: [["F", 1234, 433], ["E", 2223, 433], ["D", 2223, 955], ["G", 1587, 843]],
+    roomPlan: LO_ROOM,
+  },
+  {
+    hall: "Lothian",
+    buildings: ["w488205199"], // West Lothian: wings A and B around the Secret Garden
+    img: "/ucr/floorplans/hall-lo.png",
+    size: [2420, 1870],
+    affine: boxAffine(967, 845, 1449, 1271, 427, -260, 496, -220),
+    anchors: [["A", 1041, 862], ["B", 1041, 1122]],
+    roomPlan: LO_ROOM,
+  },
+  {
+    hall: "Lothian",
+    buildings: ["w488206039"], // Lothian Residential Restaurant, lobby and offices
+    img: "/ucr/floorplans/hall-lo.png",
+    size: [2420, 1870],
+    affine: boxAffine(1428, 985, 1772, 1491, 492, -265, 538, -176),
+    anchors: [["C", 1527, 1494]],
+  },
+  {
+    hall: "Pentland Hills",
+    img: "/ucr/floorplans/hall-ph.png",
+    size: [2420, 1870],
+    affine: boxAffine(122, 300, 1745, 1707, 402, -549, 625, -361),
+    anchors: [
+      ["A", 214, 1434], ["B", 530, 1206], ["C", 680, 1102], ["D", 1042, 918], ["E", 606, 1666], ["F", 900, 1680],
+      ["G", 1230, 1704], ["H", 1586, 1630], ["I", 214, 1080], ["J", 338, 740], ["K", 596, 496], ["L", 934, 380],
+      ["M", 1280, 416], ["N", 1576, 598], ["O", 518, 966], ["P", 802, 752], ["Q", 1686, 1170],
+    ],
+  },
+];
+
+// Pentland Hills buildings in OpenStreetMap, by the letter on the community map.
+// B+C and F+G are each one building in OSM (the map draws a room across both).
+export const PENTLAND_LETTERS: Record<string, string> = {
+  w544057985: "A", w544057986: "B/C", w544057987: "D", w544057984: "E", w544057983: "F/G",
+  w544057982: "H", w544057991: "I", w544057990: "J", w544057977: "K", w544057978: "L",
+  w544057979: "M", w544057980: "N", w544057988: "O", w544057989: "P", w544057981: "Q",
+};
+
+export function hallMapFor(hall: string | undefined, buildingId: string): HallMap | null {
+  if (!hall) return null;
+  return HALL_MAPS.find((m) => m.hall === hall && (!m.buildings || m.buildings.includes(buildingId))) ?? null;
+}
+
+export function applyAffine(m: Affine, px: number, py: number): [number, number] {
+  return [m[0] * px + m[1] * py + m[2], m[3] * px + m[4] * py + m[5]];
+}

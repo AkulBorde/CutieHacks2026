@@ -15,7 +15,7 @@
 // A student's room code ("A348", "301") maps to a stable room on a real floor.
 import { type CampusBuilding, FLOOR_HEIGHT, heightOf } from "./campusData";
 import { pointInRing, signedArea } from "./buildGeometry";
-import { type RealPlan, realPlansFor } from "./realPlans";
+import { type HallMap, type RealPlan, PENTLAND_LETTERS, applyAffine, hallMapFor, realPlansFor } from "./realPlans";
 
 export type CellKind = "room" | "bath" | "stairs" | "lounge" | "elevator";
 
@@ -28,6 +28,8 @@ export type Cell = {
   label: string;
   /** Direction of the wall the room sits on (radians), for text. */
   angle: number;
+  /** Wing letter from the hall's community map (A-I: A-E, Lothian: A-G, ...). */
+  wing?: string;
 };
 
 export type FloorPlan = {
@@ -39,6 +41,10 @@ export type FloorPlan = {
   wing: string;
   /** Floors that have a real published floor plan, and the rooms detected on it. */
   real: Map<number, { plan: RealPlan; cells: Cell[] }>;
+  /** The hall's community map (ground floor), fitted to this footprint. */
+  hallMap: HallMap | null;
+  /** Pentland Hills building letter(s) from the community map, e.g. "K" or "B/C". */
+  letter: string | null;
 };
 
 type Profile = {
@@ -174,13 +180,34 @@ export function planBuilding(b: CampusBuilding, wingHint = ""): FloorPlan {
     }
   }
 
-  // Number rooms in walking order around the building, like a real hallway.
+  // Wing letters from the community map: each room takes the nearest wing
+  // label (Pentland Hills buildings take their own letter).
+  const hallMap = hallMapFor(b.housing, b.id);
+  const letter = b.housing === "Pentland Hills" ? PENTLAND_LETTERS[b.id] ?? null : null;
+  let anchors = (hallMap?.anchors ?? []).map(([l, px, py]) => ({ l, p: applyAffine(hallMap!.affine, px, py) }));
+  if (letter) anchors = anchors.filter((a) => letter.split("/").includes(a.l));
+  const wingOf = (x: number, z: number) => {
+    let best = "", bd = Infinity;
+    for (const a of anchors) {
+      const d = Math.hypot(a.p[0] - x, a.p[1] - z);
+      if (d < bd) { bd = d; best = a.l; }
+    }
+    return best;
+  };
+
+  // Number rooms in walking order around the building, like a real hallway,
+  // restarting in each wing.
   placed.sort((p, q) => p.key[0] - q.key[0] || p.key[1] - q.key[1] || p.key[2] - q.key[2]);
-  let num = 0;
+  const perWing = new Map<string, number>();
   const cells = placed.map((p) => {
     const c = p.cell;
-    if (c.kind === "room") c.label = String(10 + (num++ % 90)).padStart(2, "0");
-    else c.label = c.kind === "bath" ? "WC / Shower" : c.kind === "stairs" ? "Stairs" : "Lounge";
+    c.wing = anchors.length ? wingOf(c.center[0], c.center[1]) : undefined;
+    if (c.kind === "room") {
+      const k = c.wing ?? "";
+      const n = perWing.get(k) ?? 0;
+      perWing.set(k, n + 1);
+      c.label = String(10 + (n % 90)).padStart(2, "0");
+    } else c.label = c.kind === "bath" ? "WC / Shower" : c.kind === "stairs" ? "Stairs" : "Lounge";
     return c;
   });
 
@@ -200,7 +227,7 @@ export function planBuilding(b: CampusBuilding, wingHint = ""): FloorPlan {
   const real = new Map<number, { plan: RealPlan; cells: Cell[] }>();
   for (const [f, rp] of realPlansFor(b.name)) real.set(f, { plan: rp, cells: realCells(rp, xMin, xMax, zMin, zMax) });
   const floors = Math.max(floorsOf(b), ...real.keys());
-  return { floors, xMin, xMax, zMin, zMax, outer: b.outer, holes, cells, wing, real };
+  return { floors, xMin, xMax, zMin, zMax, outer: b.outer, holes, cells, wing, real, hallMap, letter };
 }
 
 /** Map pixel -> scene: the plan's wall box onto the footprint's bounding box. */
@@ -238,7 +265,14 @@ export function cellsOn(plan: FloorPlan, floor: number): Cell[] {
 
 /** Room label on a given floor: wing + floor + two-digit number. */
 export function roomLabel(plan: FloorPlan, cell: Cell, floor: number) {
-  return cell.kind === "room" ? `${plan.wing}${floor}${cell.label}` : cell.label;
+  return cell.kind === "room" ? `${cell.wing ?? plan.wing}${floor}${cell.label}` : cell.label;
+}
+
+/** Does this building contain the given wing (per the hall's community map)? */
+export function buildingHasWing(b: CampusBuilding, wing: string): boolean {
+  if (b.housing === "Pentland Hills") return (PENTLAND_LETTERS[b.id] ?? "").split("/").includes(wing);
+  const m = hallMapFor(b.housing, b.id);
+  return !!m && m.anchors.some(([l]) => l === wing);
 }
 
 /** The cell a student's room code lands in. Stable for the same code. */
@@ -252,6 +286,9 @@ export function cellForRoom(plan: FloorPlan, room?: string): { cell: Cell; floor
   }
   let rooms = cellsOn(plan, floor).filter((c) => c.kind === "room" && c.label !== "");
   if (!rooms.length) rooms = plan.cells.filter((c) => c.kind === "room");
+  // Stay inside the student's wing (e.g. D210 -> wing D) when the map has it.
+  const inWing = p?.wing ? rooms.filter((c) => c.wing === p.wing) : [];
+  if (inWing.length) rooms = inWing;
   let idx = 0;
   if (p) {
     const direct = rooms.findIndex((c) => Number(c.label) === p.num);

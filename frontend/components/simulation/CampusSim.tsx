@@ -193,7 +193,21 @@ export default function CampusSim(props: CampusSimProps) {
   const [kind, setKind] = useState<IncidentKind>("earthquake");
 
   useEffect(() => {
-    loadCampus(setStatus).then(setData, (e) => setError(String(e)));
+    loadCampus(setStatus).then(
+      (d) => {
+        setData(d);
+        // ?inspect=Watkins%20Hall opens a building straight away (handy for demos).
+        const name = new URLSearchParams(window.location.search).get("inspect");
+        const bid = name ? d.buildings.findIndex((b) => b.name === name || b.housing === name) : -1;
+        if (bid >= 0) {
+          const b = d.buildings[bid];
+          const realFloors = [...planBuilding(b).real.keys()].sort((x, y) => x - y);
+          setInspect({ bid, floor: realFloors[0] ?? 1, focus: null });
+          setGoal({ x: b.center[0], z: b.center[1], y: 0, dist: Math.max(70, Math.sqrt(b.area) * 1.6), steep: true });
+        }
+      },
+      (e) => setError(String(e)),
+    );
   }, []);
 
   // Landmarks get a hand-built model; hide their generic block.
@@ -279,18 +293,20 @@ export default function CampusSim(props: CampusSimProps) {
       const plan = planBuilding(b, parseRoom(s?.room)?.wing ?? "");
       const { cell, floor } = cellForRoom(plan, s?.room);
       setInspect({ bid: t.bid, floor, focus: checkId });
-      setGoal({ x: cell.center[0], z: cell.center[1], y: (floor - 1) * 3.4, dist: 85, steep: true });
+      setGoal({ x: cell.center[0], z: cell.center[1], y: (floor - 1) * 3.4, dist: 48, steep: true });
     } else {
       setGoal({ x: t.x, z: t.z, dist: 140 });
     }
   };
   const flyToStudent = openStudent;
-  const focus = props.focusCheckId;
-  useEffect(() => {
+  // When the parent asks to focus a different student, fly there once.
+  // (Adjusting state on a prop change during render, per the React docs.)
+  const focus = props.focusCheckId ?? null;
+  const [lastFocus, setLastFocus] = useState<string | null>(null);
+  if (data && focus !== lastFocus) {
+    setLastFocus(focus);
     if (focus) openStudent(focus);
-    // Only re-fly when the requested student changes, not when pins move.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus]);
+  }
 
   // Double-click any building to look inside it.
   const inspectBuilding = (bid: number) => {
@@ -301,29 +317,24 @@ export default function CampusSim(props: CampusSimProps) {
     setInspect({ bid, floor: realFloors[0] ?? 1, focus: null });
     setGoal({ x: b.center[0], z: b.center[1], y: 0, dist: Math.max(70, Math.sqrt(b.area) * 1.6), steep: true });
   };
-  // ?inspect=Watkins%20Hall opens a building straight away (handy for demos).
-  useEffect(() => {
-    if (!data) return;
-    const name = new URLSearchParams(window.location.search).get("inspect");
-    if (!name) return;
-    const bid = data.buildings.findIndex((b) => b.name === name || b.housing === name);
-    if (bid >= 0) inspectBuilding(bid);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
   // Pick mode: open a hall when asked (its biggest building, where the rooms are).
-  const openReq = props.openBuilding;
-  useEffect(() => {
-    if (!data || !openReq) return;
-    const ids = halls.get(openReq.name) ?? [];
-    const bid = [...ids].sort((a, b) => data.buildings[b].area - data.buildings[a].area)[0];
-    if (bid != null) inspectBuilding(bid);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, openReq]);
-  // Pick mode: start over the halls you can choose from.
-  useEffect(() => {
-    if (pickMode && zoneCenter) setGoal({ x: zoneCenter[0], z: zoneCenter[1], dist: 420 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickMode, zoneCenter == null]);
+  // Reacts once per request object, during render (no effect needed).
+  const openReq = props.openBuilding ?? null;
+  const [lastOpenReq, setLastOpenReq] = useState<{ name: string } | null>(null);
+  if (data && openReq !== lastOpenReq) {
+    setLastOpenReq(openReq);
+    if (openReq) {
+      const ids = halls.get(openReq.name) ?? [];
+      const bid = [...ids].sort((x, y) => data.buildings[y].area - data.buildings[x].area)[0];
+      if (bid != null) inspectBuilding(bid);
+    }
+  }
+  // Pick mode: start over the halls you can choose from (once).
+  const [pickFramed, setPickFramed] = useState(false);
+  if (pickMode && zoneCenter && !pickFramed) {
+    setPickFramed(true);
+    setGoal({ x: zoneCenter[0], z: zoneCenter[1], dist: 420 });
+  }
   // A tapped room only counts while its building is open.
   const activePick = picked && picked.bid === inspect?.bid ? picked : null;
   const onPickRoom = props.onPickRoom;
@@ -373,11 +384,12 @@ export default function CampusSim(props: CampusSimProps) {
     return { b, plan, occupants };
   }, [inspect, data, students, targets, activePick]);
   const canPickHere = pickMode && !!cutaway?.b.housing && !!props.pickable?.includes(cutaway.b.housing);
-  // Starting a check-in flies to the zone.
-  useEffect(() => {
+  // Starting a check-in flies to the zone (once, when it becomes active).
+  const [wasActive, setWasActive] = useState(false);
+  if (incidentActive !== wasActive) {
+    setWasActive(incidentActive);
     if (incidentActive && zoneCenter) setGoal({ x: zoneCenter[0], z: zoneCenter[1], dist: 520 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incidentActive]);
+  }
 
   const sun = useMemo(() => SUN_DIR.clone().multiplyScalar(1000).toArray() as [number, number, number], []);
 
@@ -400,7 +412,7 @@ export default function CampusSim(props: CampusSimProps) {
           {data && <CampusWorld data={data} hide={landmarks.hide} xray={inspect?.bid ?? null} onHover={setHover} onPick={toggleHall} onInspect={inspectBuilding} />}
           {landmarks.bell && <BellTower x={landmarks.bell[0]} z={landmarks.bell[1]} />}
         </Quake>
-        {data && <ZoneHighlight data={data} indices={zoneIdx} active={incidentActive} />}
+        {data && <ZoneHighlight data={data} indices={inspect ? zoneIdx.filter((i) => i !== inspect.bid) : zoneIdx} active={incidentActive} />}
         {data && <StudentPins data={data} students={students} halls={halls} onPick={flyToStudent} hideBid={inspect?.bid ?? null} />}
         {cutaway && inspect && (
           <BuildingInterior building={cutaway.b} plan={cutaway.plan} floor={Math.min(inspect.floor, cutaway.plan.floors)} occupants={cutaway.occupants} focusCheckId={inspect.focus} onPickCell={canPickHere ? pickCell : undefined} />
@@ -424,7 +436,13 @@ export default function CampusSim(props: CampusSimProps) {
       {cutaway && inspect && (
         <InspectPanel
           title={cutaway.b.housing ?? (cutaway.b.name || "Building")}
-          subtitle={cutaway.b.housing && cutaway.b.name && cutaway.b.name !== cutaway.b.housing ? cutaway.b.name : undefined}
+          subtitle={
+            cutaway.plan.letter
+              ? `Building ${cutaway.plan.letter}`
+              : cutaway.b.housing && cutaway.b.name && cutaway.b.name !== cutaway.b.housing
+                ? cutaway.b.name
+                : undefined
+          }
           floor={Math.min(inspect.floor, cutaway.plan.floors)}
           floors={cutaway.plan.floors}
           rooms={cutaway.plan.cells.filter((c) => c.kind === "room").length}
@@ -435,7 +453,7 @@ export default function CampusSim(props: CampusSimProps) {
             const o = cutaway.occupants.find((x) => x.checkId === id);
             if (!o) return;
             setInspect((i) => (i ? { ...i, floor: o.floor, focus: id } : i));
-            setGoal({ x: o.cell.center[0], z: o.cell.center[1], y: (o.floor - 1) * 3.4, dist: 85, steep: true });
+            setGoal({ x: o.cell.center[0], z: o.cell.center[1], y: (o.floor - 1) * 3.4, dist: 48, steep: true });
           }}
           onClose={() => setInspect(null)}
           emptyText={canPickHere ? "Tap your room on the floor plan. Use the arrows to change floors." : undefined}
