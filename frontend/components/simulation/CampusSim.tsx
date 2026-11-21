@@ -8,48 +8,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Html, MapControls, Sky } from "@react-three/drei";
+import { EffectComposer, N8AO, SMAA, ToneMapping, Vignette, BrightnessContrast, HueSaturation } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import { type CampusData, heightOf, loadCampus } from "./campusData";
 import CampusWorld from "./CampusWorld";
+import Environment, { SUN_DIR } from "./Environment";
 import { BellTower, LANDMARK_MATCHERS } from "./Landmarks";
 
 export type CampusSimProps = {
   className?: string;
+  /** "high" adds ambient occlusion; drop to "low" on weak laptops. */
+  quality?: "high" | "low";
 };
-
-const SUN: [number, number, number] = [420, 520, 260];
-
-function Ground() {
-  return (
-    <mesh rotation-x={-Math.PI / 2} receiveShadow>
-      <planeGeometry args={[9000, 9000]} />
-      <meshStandardMaterial color="#c8b893" roughness={1} />
-    </mesh>
-  );
-}
-
-function Lights() {
-  return (
-    <>
-      <hemisphereLight args={["#dbe7ff", "#b39d76", 0.75]} />
-      <directionalLight
-        position={SUN}
-        intensity={2.4}
-        color="#fff4e2"
-        castShadow
-        shadow-mapSize={[4096, 4096]}
-        shadow-bias={-0.0004}
-        shadow-normalBias={0.6}
-        shadow-camera-left={-1100}
-        shadow-camera-right={1100}
-        shadow-camera-top={1100}
-        shadow-camera-bottom={-1100}
-        shadow-camera-near={10}
-        shadow-camera-far={2400}
-      />
-    </>
-  );
-}
 
 function HoverLabel({ data, bid }: { data: CampusData; bid: number | null }) {
   if (bid == null) return null;
@@ -61,15 +32,30 @@ function HoverLabel({ data, bid }: { data: CampusData; bid: number | null }) {
     <Html position={[b.center[0], heightOf(b) + 6, b.center[1]]} center zIndexRange={[20, 0]}>
       <div className="pointer-events-none whitespace-nowrap rounded-md bg-zinc-900/85 px-2 py-1 text-xs font-medium text-white shadow">
         {label}
-        {b.housing && b.name && b.name !== b.housing ? (
-          <span className="ml-1 text-zinc-400">· {b.name}</span>
-        ) : null}
+        {b.housing && b.name && b.name !== b.housing ? <span className="ml-1 text-zinc-400">· {b.name}</span> : null}
       </div>
     </Html>
   );
 }
 
-export default function CampusSim({ className }: CampusSimProps) {
+function PostFX({ quality }: { quality: "high" | "low" }) {
+  return (
+    <EffectComposer multisampling={0}>
+      {quality === "high" ? (
+        <N8AO halfRes aoRadius={9} distanceFalloff={1.2} intensity={2.6} quality="medium" color="#1c1a16" />
+      ) : (
+        <></>
+      )}
+      <SMAA />
+      <HueSaturation saturation={0.08} />
+      <BrightnessContrast contrast={0.06} />
+      <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      <Vignette offset={0.28} darkness={0.42} />
+    </EffectComposer>
+  );
+}
+
+export default function CampusSim({ className, quality = "high" }: CampusSimProps) {
   const [data, setData] = useState<CampusData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
@@ -93,43 +79,42 @@ export default function CampusSim({ className }: CampusSimProps) {
     return { hide, bell: bell as [number, number] | null };
   }, [data]);
 
-  const camera = useMemo(
-    () => ({ position: [-520, 430, 560] as [number, number, number], fov: 38, near: 2, far: 9000 }),
-    [],
-  );
+  const sun = useMemo(() => SUN_DIR.clone().multiplyScalar(1000).toArray() as [number, number, number], []);
 
   return (
     <div className={`relative ${className ?? "h-full w-full"}`}>
       <Canvas
         shadows
-        dpr={[1, 2]}
-        camera={camera}
-        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
+        dpr={[1, 1.75]}
+        camera={{ position: [-330, 300, 420], fov: 40, near: 2, far: 16000 }}
+        gl={{ antialias: false, powerPreference: "high-performance", stencil: false }}
         onCreated={({ gl }) => {
           gl.shadowMap.type = THREE.PCFShadowMap;
         }}
         style={{ cursor: hover != null ? "pointer" : "grab" }}
       >
-        <fog attach="fog" args={["#d9e4ee", 1400, 5200]} />
-        <Sky sunPosition={SUN} turbidity={5} rayleigh={1.1} mieCoefficient={0.004} mieDirectionalG={0.85} />
-        <Lights />
-        <Ground />
+        <fog attach="fog" args={["#c9d6e2", 1800, 9000]} />
+        <Sky sunPosition={sun} turbidity={4.5} rayleigh={0.9} mieCoefficient={0.005} mieDirectionalG={0.82} distance={20000} />
+        <Environment data={data} />
         {data && <CampusWorld data={data} hide={landmarks.hide} onHover={setHover} />}
         {landmarks.bell && <BellTower x={landmarks.bell[0]} z={landmarks.bell[1]} />}
         {data && <HoverLabel data={data} bid={hover} />}
         <MapControls
           makeDefault
-          target={[200, 0, -250]}
-          maxPolarAngle={Math.PI / 2.2}
+          target={[180, 0, -180]}
+          maxPolarAngle={Math.PI / 2.15}
           minDistance={30}
-          maxDistance={3200}
+          maxDistance={4200}
           enableDamping
           dampingFactor={0.08}
         />
+        <PostFX quality={quality} />
       </Canvas>
       {!data && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-zinc-600">
-          {error ? `Could not load campus: ${error}` : status}
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="rounded-lg bg-zinc-900/80 px-4 py-2 text-sm text-white">
+            {error ? `Could not load campus: ${error}` : status}
+          </div>
         </div>
       )}
       <div className="pointer-events-none absolute bottom-1 right-2 text-[10px] text-zinc-700/80">
