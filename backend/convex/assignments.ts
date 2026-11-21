@@ -8,6 +8,7 @@ import {
   query,
   type MutationCtx,
 } from "./_generated/server";
+import { locate } from "./lib/campus";
 import { distanceMeters, etaMinutes } from "./lib/geo";
 
 const OFFER_WINDOW_MS = 2 * 60 * 1000;
@@ -36,7 +37,9 @@ export async function proposeFor(ctx: MutationCtx, checkId: Id<"checks">) {
 
   const student = await ctx.db.get(check.studentId);
   const building = student && (await ctx.db.get(student.buildingId));
-  if (!building) return;
+  if (!student || !building) return;
+  // Nearest to where the student is, which is not always their dorm.
+  const where = locate(check, student, building);
 
   const responders = await ctx.db.query("responders").collect();
   const free = responders
@@ -44,7 +47,7 @@ export async function proposeFor(ctx: MutationCtx, checkId: Id<"checks">) {
       (r) =>
         r.available && !alreadyTried.has(r._id) && !proposedElsewhere.has(r._id),
     )
-    .map((r) => ({ responder: r, meters: distanceMeters(r, building) }))
+    .map((r) => ({ responder: r, meters: distanceMeters(r, where) }))
     .sort((a, b) => a.meters - b.meters);
 
   const nearest = free[0];
@@ -99,13 +102,23 @@ export const queue = query({
       const live = assignments.find((a) => a.status !== "expired");
       const responder = live && (await ctx.db.get(live.responderId));
 
+      const where = locate(check, student, building);
       items.push({
         checkId: check._id,
         status: check.status,
         updatedAt: check.updatedAt,
         studentName: student.name,
-        buildingName: building.name,
-        room: student.room,
+        // Where the responder is sent.
+        buildingName: where.buildingName,
+        room: where.room,
+        // Their registered room, when they said they are somewhere else.
+        dorm:
+          where.buildingName === building.name
+            ? undefined
+            : { buildingName: building.name, room: student.room },
+        // Their words, when they named a place we could not match. The
+        // building above is only their dorm then, so the dispatcher must see.
+        unmatchedLocation: where.unmatched,
         assignment:
           live && responder
             ? {
@@ -186,6 +199,7 @@ export const byToken = query({
     const student = check && (await ctx.db.get(check.studentId));
     const building = student && (await ctx.db.get(student.buildingId));
     if (!check || !responder || !student || !building) return null;
+    const where = locate(check, student, building);
 
     return {
       status: a.status,
@@ -193,15 +207,16 @@ export const byToken = query({
       // this id; the responder map uses it to pick the same one.
       checkId: check._id,
       studentName: student.name,
-      buildingName: building.name,
-      room: student.room,
+      buildingName: where.buildingName,
+      room: where.room,
+      unmatchedLocation: where.unmatched,
       need: describeNeed(check.answers),
-      distanceMeters: distanceMeters(responder, building),
+      distanceMeters: distanceMeters(responder, where),
       etaMinutes: a.etaMinutes,
       offerExpiresAt: a.offerExpiresAt,
       // Ends of the walking route the responder sees once they accept.
       from: { lat: responder.lat, lng: responder.lng },
-      to: { lat: building.lat, lng: building.lng },
+      to: { lat: where.lat, lng: where.lng },
     };
   },
 });

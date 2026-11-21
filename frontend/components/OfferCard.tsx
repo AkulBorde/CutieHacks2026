@@ -15,8 +15,10 @@ export type Offer = {
   status: "proposed" | "offered" | "accepted" | "expired";
   checkId: string;
   studentName: string;
+  // Where the student said they are, or their dorm room. No room if they
+  // only named a building.
   buildingName: string;
-  room: string;
+  room?: string;
   need: string;
   distanceMeters: number;
   etaMinutes: number;
@@ -34,12 +36,15 @@ export default function OfferCard({
 }) {
   const secondsLeft = useCountdown(offer.offerExpiresAt);
   const expired = offer.status === "expired" || secondsLeft === 0;
+  const place = offer.room
+    ? `${offer.buildingName}, room ${offer.room}`
+    : offer.buildingName;
 
   if (offer.status === "accepted") {
     return (
       <div className="flex flex-col gap-3">
         <p className="rounded-lg bg-green-50 p-4 text-lg font-medium text-green-800">
-          You&apos;re confirmed. Go to {offer.buildingName}, room {offer.room}.
+          You&apos;re confirmed. Go to {place}.
         </p>
         <p>{offer.need}</p>
         <RouteMap
@@ -48,7 +53,7 @@ export default function OfferCard({
           checkId={offer.checkId}
           buildingName={offer.buildingName}
           room={offer.room}
-          label={`${offer.studentName} · ${offer.buildingName} ${offer.room}`}
+          label={`${offer.studentName} · ${place}`}
         />
       </div>
     );
@@ -58,9 +63,7 @@ export default function OfferCard({
     <div className="flex flex-col gap-4 rounded-lg border border-zinc-200 p-4">
       <div>
         <p className="text-xl font-semibold">{offer.studentName}</p>
-        <p className="text-zinc-600">
-          {offer.buildingName}, room {offer.room}
-        </p>
+        <p className="text-zinc-600">{place}</p>
       </div>
 
       <p>{offer.need}</p>

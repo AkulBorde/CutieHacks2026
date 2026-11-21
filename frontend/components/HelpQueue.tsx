@@ -6,8 +6,10 @@ export type QueueItem = {
   checkId: Id<"checks">;
   status: "urgent" | "needs_help";
   studentName: string;
+  // Where the responder is sent: where the student said they are on the
+  // call, or their dorm room. No room if they only named a building.
   buildingName: string;
-  room: string;
+  room?: string;
   // Missing until a responder has been proposed for this check.
   assignment?: {
     id: Id<"assignments">;
@@ -48,7 +50,8 @@ export default function HelpQueue({
                   </span>
                 </p>
                 <p className="text-zinc-500">
-                  {item.buildingName}, room {item.room}
+                  {item.buildingName}
+                  {item.room ? `, room ${item.room}` : ""}
                 </p>
                 <p className="text-zinc-500">
                   {item.assignment

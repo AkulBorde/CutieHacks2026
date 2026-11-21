@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { proposeFor } from "./assignments";
+import { locate } from "./lib/campus";
 import { scan } from "./lib/honesty";
 import { closingLine, deriveStatus } from "./lib/status";
 
@@ -27,13 +28,18 @@ export const listForIncident = query({
       const student = await ctx.db.get(check.studentId);
       const building = student && (await ctx.db.get(student.buildingId));
       if (!student || !building) continue;
+      // Where they said they are, or their dorm if they did not say.
+      const where = locate(check, student, building);
       dots.push({
         checkId: check._id,
         studentName: student.name,
         status: check.status,
         isReal: student.isReal,
-        lat: building.lat,
-        lng: building.lng,
+        lat: where.lat,
+        lng: where.lng,
+        // The 3D campus puts the pin on the building with this name.
+        buildingName: where.buildingName,
+        room: where.room,
       });
     }
     return dots;
