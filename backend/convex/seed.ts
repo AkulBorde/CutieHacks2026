@@ -60,3 +60,22 @@ export const seed = internalMutation({
     return `Seeded ${buildingIds.length} buildings, ${students} students, ${RESPONDERS.length} responders.`;
   },
 });
+
+// Wipes every incident, check and assignment and frees all responders, so the
+// demo can be rehearsed again. Buildings, students and responders are kept.
+//
+// Run with: npx convex run seed:resetIncidents (inside backend/)
+export const resetIncidents = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    for (const table of ["assignments", "checks", "incidents"] as const) {
+      for (const doc of await ctx.db.query(table).collect()) {
+        await ctx.db.delete(doc._id);
+      }
+    }
+    for (const responder of await ctx.db.query("responders").collect()) {
+      await ctx.db.patch(responder._id, { available: true });
+    }
+    return "Incidents cleared.";
+  },
+});
