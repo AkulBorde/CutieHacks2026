@@ -44,6 +44,8 @@ export type SimResponder = {
   etaMinutes: number;
   /** 0..1 along the walk, for animation. */
   progress: number;
+  /** Live mode: the position is worked out from the ETA, not reported. */
+  estimated?: boolean;
 };
 
 function hash(s: string) {
@@ -280,6 +282,13 @@ export function Responders({ responders, targets }: { responders: SimResponder[]
         const [fx, fz] = toScene(r.from[0], r.from[1]);
         const p = Math.min(1, Math.max(0, r.progress));
         const x = fx + (t.x - fx) * p, z = fz + (t.z - fz) * p;
+        const away = `${Math.max(1, Math.ceil(r.etaMinutes * (1 - p)))} min away`;
+        // An estimated walk never claims the responder has arrived.
+        const where =
+          r.status === "arrived" ? "on scene" :
+          r.status === "offered" ? "offer sent" :
+          !r.estimated ? away :
+          p >= 1 ? "ETA reached (estimate)" : `about ${away} (estimate)`;
         return (
           <group key={r.id}>
             <mesh position={[x, 1.8, z]} castShadow>
@@ -293,8 +302,7 @@ export function Responders({ responders, targets }: { responders: SimResponder[]
             {r.status !== "arrived" && <WalkLine from={[fx, fz]} to={[t.x, t.z]} progress={p} />}
             <Html position={[x, 7, z]} center zIndexRange={[25, 0]} style={{ pointerEvents: "none" }}>
               <div className="whitespace-nowrap rounded-md bg-blue-700 px-2 py-1 text-xs font-semibold text-white shadow-lg">
-                {r.name} ({r.role}) ·{" "}
-                {r.status === "arrived" ? "on scene" : r.status === "offered" ? "offer sent" : `${Math.max(1, Math.ceil(r.etaMinutes * (1 - p)))} min away`}
+                {r.name} ({r.role}) · {where}
               </div>
             </Html>
           </group>

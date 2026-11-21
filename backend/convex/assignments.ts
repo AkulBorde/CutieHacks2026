@@ -128,6 +128,48 @@ export const queue = query({
   },
 });
 
+// The responders the dashboard's map draws: everyone with an offer out or
+// accepted in this incident. No phone reports a position, so `lat`/`lng` is
+// where the responder started and the map estimates the walk from
+// `acceptedAt` and `etaMinutes`.
+export const responders = query({
+  args: { incidentId: v.id("incidents") },
+  handler: async (ctx, { incidentId }) => {
+    const checks = await ctx.db
+      .query("checks")
+      .withIndex("by_incident", (q) => q.eq("incidentId", incidentId))
+      .collect();
+
+    const rows = [];
+    for (const check of checks) {
+      if (check.status !== "needs_help" && check.status !== "urgent") continue;
+
+      const assignments = await ctx.db
+        .query("assignments")
+        .withIndex("by_check", (q) => q.eq("checkId", check._id))
+        .collect();
+      const live = assignments.find(
+        (a) => a.status === "offered" || a.status === "accepted",
+      );
+      const responder = live && (await ctx.db.get(live.responderId));
+      if (!live || !responder) continue;
+
+      rows.push({
+        assignmentId: live._id,
+        checkId: check._id,
+        name: responder.name,
+        role: responder.role,
+        lat: responder.lat,
+        lng: responder.lng,
+        status: live.status as "offered" | "accepted",
+        etaMinutes: live.etaMinutes,
+        acceptedAt: live.acceptedAt,
+      });
+    }
+    return rows;
+  },
+});
+
 // What the responder page at /r/[token] shows. Null for an unknown token, or
 // one the dispatcher has not approved yet.
 export const byToken = query({

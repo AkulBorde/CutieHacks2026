@@ -9,14 +9,17 @@ import type { Id } from "@rollcall/backend/convex/_generated/dataModel";
 import CounterBar from "@/components/CounterBar";
 import HelpQueue from "@/components/HelpQueue";
 import HonestyCounter from "@/components/HonestyCounter";
-import Legend from "@/components/Legend";
 import LiveFeed from "@/components/LiveFeed";
 import { INCIDENT_LABELS, type IncidentType } from "@/lib/incident";
+import { useWalkingResponders } from "@/lib/useWalkingResponders";
 
-const CampusMap = dynamic(() => import("@/components/CampusMap"), {
+// The 3D campus from /sim, in live mode: it takes the same Convex rows the
+// flat Leaflet map (components/CampusMap.tsx) took. three.js needs `window`,
+// so it only loads in the browser.
+const CampusSim = dynamic(() => import("@/components/simulation/CampusSim"), {
   ssr: false,
   loading: () => (
-    <div className="h-[480px] w-full animate-pulse rounded-lg bg-zinc-100" />
+    <div className="h-[560px] w-full animate-pulse rounded-lg bg-zinc-100" />
   ),
 });
 
@@ -33,6 +36,7 @@ export default function Dashboard() {
   const queue = useQuery(api.assignments.queue, forIncident);
   const call = useQuery(api.checks.currentCall, forIncident);
   const honesty = useQuery(api.checks.honesty, forIncident);
+  const responders = useWalkingResponders(incident?._id);
 
   const startIncident = useMutation(api.incidents.start);
   const closeIncident = useMutation(api.incidents.close);
@@ -122,15 +126,26 @@ export default function Dashboard() {
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="flex flex-col gap-3 lg:col-span-2">
-          <CampusMap
+        <div className="lg:col-span-2">
+          <CampusSim
+            className="h-[560px] w-full rounded-lg"
             buildings={buildings ?? []}
             students={students ?? []}
             // While an incident runs the zone is fixed to its buildings.
             selectedIds={incident ? incident.buildingIds : selectedIds}
-            onToggle={incident ? () => {} : toggleBuilding}
+            onToggle={
+              incident
+                ? () => {}
+                : (id) => toggleBuilding(id as Id<"buildings">)
+            }
+            // Plays the shake once, right as an earthquake roll call starts.
+            incidentStartedAt={
+              incident?.type === "earthquake" ? incident.startedAt : null
+            }
+            // Offered responders stand at their post; accepted ones walk to
+            // their student.
+            responders={responders}
           />
-          <Legend />
         </div>
 
         <div className="flex flex-col gap-4">
