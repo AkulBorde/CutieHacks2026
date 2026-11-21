@@ -138,7 +138,7 @@ export function useDemoIncident(speed = 0.55) {
           set(d.checkId, outcome);
           const who = `${d.studentName} (${d.buildingName} ${d.room})`;
           if (outcome === "safe") log(`${who}: safe.`, "safe");
-          else if (outcome === "no_answer") log(`${who}: no answer after retry. Flagged for an in-person check.`, "grey");
+          else if (outcome === "no_answer") log(`${who}: no answer. Flagged for an in-person check.`, "grey");
           else {
             log(`${who}: ${outcome === "urgent" ? "URGENT. Told to call 911 now." : "needs help getting out."}`, outcome === "urgent" ? "urgent" : "help");
             later(1800, () => dispatch({ ...d, status: outcome }));

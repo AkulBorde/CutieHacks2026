@@ -1,11 +1,8 @@
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { proposeFor } from "./assignments";
 import { scan } from "./lib/honesty";
 import { closingLine, deriveStatus } from "./lib/status";
-
-const MAX_ATTEMPTS = 2; // the first call plus one retry
 
 const answersValidator = v.object({
   safe: v.optional(v.boolean()),
@@ -167,25 +164,17 @@ export const finishCall = internalMutation({
   handler: async (ctx, { checkId, callId, noAnswer, transcript, agentSpeech }) => {
     const check = await ctx.db.get(checkId);
     // Ignore events for a call this check has already moved on from. That
-    // covers duplicates of a no-answer event after the retry was placed.
+    // covers duplicates of a no-answer event, since callId is cleared below.
     if (!check || check.callId !== callId) return;
 
+    // One call per student, no redial. Voicemail or a missed call is flagged
+    // for an in-person check.
     if (noAnswer) {
-      const student = await ctx.db.get(check.studentId);
-      if (check.attempts < MAX_ATTEMPTS && student?.phone) {
-        await ctx.db.patch(checkId, { callId: undefined, updatedAt: Date.now() });
-        await ctx.scheduler.runAfter(0, internal.calls.placeCheckInCall, {
-          checkId,
-          phone: student.phone,
-          studentName: student.name,
-        });
-      } else {
-        await ctx.db.patch(checkId, {
-          status: "no_answer",
-          callId: undefined,
-          updatedAt: Date.now(),
-        });
-      }
+      await ctx.db.patch(checkId, {
+        status: "no_answer",
+        callId: undefined,
+        updatedAt: Date.now(),
+      });
       return;
     }
 

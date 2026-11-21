@@ -32,10 +32,10 @@ export const simulateResult = internalMutation({
     await ctx.db.patch(checkId, {
       status,
       answers,
-      attempts: check.attempts + (status === "no_answer" ? 2 : 1),
+      attempts: check.attempts + 1,
       transcript: answers
         ? `[simulated] ${student.name} answered the check-in.`
-        : "[simulated] No answer after retry.",
+        : "[simulated] No answer.",
       updatedAt: Date.now(),
     });
     // Same as a real call: needs_help and urgent get the nearest free
