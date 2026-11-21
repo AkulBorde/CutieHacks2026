@@ -2,7 +2,7 @@
 
 import { useCountdown } from "@/lib/useCountdown";
 
-// What the responder page needs from api.assignments.byToken (not written yet).
+// What api.assignments.byToken returns for a live offer.
 export type Offer = {
   status: "proposed" | "offered" | "accepted" | "expired";
   studentName: string;
