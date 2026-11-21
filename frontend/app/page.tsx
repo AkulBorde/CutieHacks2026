@@ -7,7 +7,9 @@ import { useQuery } from "convex/react";
 import { api } from "@rollcall/backend/convex/_generated/api";
 import type { Id } from "@rollcall/backend/convex/_generated/dataModel";
 import CounterBar from "@/components/CounterBar";
+import HelpQueue from "@/components/HelpQueue";
 import Legend from "@/components/Legend";
+import LiveFeed from "@/components/LiveFeed";
 
 const CampusMap = dynamic(() => import("@/components/CampusMap"), {
   ssr: false,
@@ -32,7 +34,7 @@ export default function Dashboard() {
   return (
     <main className="flex flex-1 flex-col gap-4 p-6">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold">Roll Call</h1>
+        <h1 className="text-2xl font-semibold">Bear Call</h1>
 
         <div className="flex items-center gap-3">
           <span className="text-sm text-zinc-500">
@@ -61,15 +63,27 @@ export default function Dashboard() {
         counts={{ accountedFor: 0, needsHelp: 0, urgent: 0, noAnswer: 0 }}
       />
 
-      <CampusMap
-        buildings={buildings ?? []}
-        selectedIds={selectedIds}
-        onToggle={toggleBuilding}
-      />
-      <Legend />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="flex flex-col gap-3 lg:col-span-2">
+          <CampusMap
+            buildings={buildings ?? []}
+            selectedIds={selectedIds}
+            onToggle={toggleBuilding}
+          />
+          <Legend />
+        </div>
 
-      {/* TODO help queue: urgent first, with Approve */}
-      {/* TODO live feed: transcript + extracted answers, manual override */}
+        <div className="flex flex-col gap-4">
+          {/* TODO items: useQuery(api.assignments.queue), urgent first.
+              onApprove: useMutation(api.assignments.approve) */}
+          <HelpQueue items={[]} onApprove={() => {}} />
+
+          {/* TODO call: the check being called right now.
+              onMarkNeedsHelp: useMutation(api.checks.markManual) */}
+          <LiveFeed call={null} onMarkNeedsHelp={() => {}} />
+        </div>
+      </div>
+
       {/* TODO honesty counter */}
     </main>
   );

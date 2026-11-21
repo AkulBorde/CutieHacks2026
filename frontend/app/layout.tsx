@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Roll Call",
+  title: "Bear Call",
   description: "Campus safety check-in",
 };
 
