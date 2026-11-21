@@ -1,6 +1,6 @@
-# Roll Call
+# Bear Call
 
-Roll Call is a campus safety check-in prototype. It helps incident coordinators see who has responded to an alert and who still needs a follow-up.
+Bear Call is a campus safety check-in prototype. It helps incident coordinators see who has responded to an alert and who still needs a follow-up.
 
 ## Run locally
 
