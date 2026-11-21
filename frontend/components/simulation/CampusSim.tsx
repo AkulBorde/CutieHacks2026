@@ -282,9 +282,20 @@ export default function CampusSim(props: CampusSimProps) {
   const inspectBuilding = (bid: number) => {
     if (!data) return;
     const b = data.buildings[bid];
-    setInspect({ bid, floor: 1, focus: null });
+    // Buildings with a real floor map open on that floor.
+    const realFloors = [...planBuilding(b).real.keys()].sort((x, y) => x - y);
+    setInspect({ bid, floor: realFloors[0] ?? 1, focus: null });
     setGoal({ x: b.center[0], z: b.center[1], y: 0, dist: Math.max(70, Math.sqrt(b.area) * 1.6), steep: true });
   };
+  // ?inspect=Watkins%20Hall opens a building straight away (handy for demos).
+  useEffect(() => {
+    if (!data) return;
+    const name = new URLSearchParams(window.location.search).get("inspect");
+    if (!name) return;
+    const bid = data.buildings.findIndex((b) => b.name === name || b.housing === name);
+    if (bid >= 0) inspectBuilding(bid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setInspect(null);

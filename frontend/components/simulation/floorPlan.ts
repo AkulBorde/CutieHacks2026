@@ -15,8 +15,9 @@
 // A student's room code ("A348", "301") maps to a stable room on a real floor.
 import { type CampusBuilding, FLOOR_HEIGHT, heightOf } from "./campusData";
 import { pointInRing, signedArea } from "./buildGeometry";
+import { type RealPlan, realPlansFor } from "./realPlans";
 
-export type CellKind = "room" | "bath" | "stairs" | "lounge";
+export type CellKind = "room" | "bath" | "stairs" | "lounge" | "elevator";
 
 export type Cell = {
   /** Corners in scene x,z: wall-side edge first, then the hallway side. */
@@ -36,6 +37,8 @@ export type FloorPlan = {
   holes: number[][];
   cells: Cell[];
   wing: string;
+  /** Floors that have a real published floor plan, and the rooms detected on it. */
+  real: Map<number, { plan: RealPlan; cells: Cell[] }>;
 };
 
 type Profile = {
@@ -194,7 +197,43 @@ export function planBuilding(b: CampusBuilding, wingHint = ""): FloorPlan {
     zMin = Math.min(zMin, b.outer[i + 1]); zMax = Math.max(zMax, b.outer[i + 1]);
   }
   const wing = wingHint || (b.name.match(/\b([A-Z])$/)?.[1] ?? "");
-  return { floors: floorsOf(b), xMin, xMax, zMin, zMax, outer: b.outer, holes, cells, wing };
+  const real = new Map<number, { plan: RealPlan; cells: Cell[] }>();
+  for (const [f, rp] of realPlansFor(b.name)) real.set(f, { plan: rp, cells: realCells(rp, xMin, xMax, zMin, zMax) });
+  const floors = Math.max(floorsOf(b), ...real.keys());
+  return { floors, xMin, xMax, zMin, zMax, outer: b.outer, holes, cells, wing, real };
+}
+
+/** Map pixel -> scene: the plan's wall box onto the footprint's bounding box. */
+export function realToScene(rp: RealPlan, xMin: number, xMax: number, zMin: number, zMax: number) {
+  const [x0, y0, x1, y1] = rp.bbox;
+  const sx = (xMax - xMin) / (x1 - x0), sz = (zMax - zMin) / (y1 - y0);
+  return (px: number, py: number): [number, number] => [xMin + (px - x0) * sx, zMin + (py - y0) * sz];
+}
+
+function realCells(rp: RealPlan, xMin: number, xMax: number, zMin: number, zMax: number): Cell[] {
+  const P = realToScene(rp, xMin, xMax, zMin, zMax);
+  const out: Cell[] = [];
+  let n = 0;
+  for (const [x0, y0, x1, y1, kind, label] of rp.rooms) {
+    const a = P(x0, y0), b = P(x1, y1);
+    const w = b[0] - a[0], d = b[1] - a[1];
+    if (w < 1 || d < 1) continue;
+    // Small rooms are closets and offices too tight to be "a room" for placing people.
+    const k: CellKind = kind === "e" ? "elevator" : "room";
+    out.push({
+      corners: [[a[0], a[1]], [b[0], a[1]], [b[0], b[1]], [a[0], b[1]]],
+      center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2],
+      kind: k,
+      label: kind === "c" ? label : k === "room" ? (w * d >= 12 ? String(10 + n++).padStart(2, "0") : "") : label,
+      angle: 0,
+    });
+  }
+  return out;
+}
+
+/** The cells to show on a floor: the real plan's rooms if there is one. */
+export function cellsOn(plan: FloorPlan, floor: number): Cell[] {
+  return plan.real.get(floor)?.cells ?? plan.cells;
 }
 
 /** Room label on a given floor: wing + floor + two-digit number. */
@@ -204,9 +243,15 @@ export function roomLabel(plan: FloorPlan, cell: Cell, floor: number) {
 
 /** The cell a student's room code lands in. Stable for the same code. */
 export function cellForRoom(plan: FloorPlan, room?: string): { cell: Cell; floor: number } {
-  const rooms = plan.cells.filter((c) => c.kind === "room");
   const p = parseRoom(room);
   const floor = Math.min(plan.floors, Math.max(1, p?.floor ?? 1));
+  // A classroom number printed on a real map wins outright.
+  for (const [f, r] of plan.real) {
+    const hit = room && r.cells.find((c) => c.label.split(" · ").includes(room));
+    if (hit) return { cell: hit, floor: f };
+  }
+  let rooms = cellsOn(plan, floor).filter((c) => c.kind === "room" && c.label !== "");
+  if (!rooms.length) rooms = plan.cells.filter((c) => c.kind === "room");
   let idx = 0;
   if (p) {
     const direct = rooms.findIndex((c) => Number(c.label) === p.num);

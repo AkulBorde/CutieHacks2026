@@ -6,13 +6,13 @@
 // the one being viewed are lifted away, and the viewed floor shows every room
 // (walls, numbers, hallway) with the students in it. The student who needs
 // help stands in their actual room, highlighted.
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { STATUS_COLORS, STATUS_LABELS } from "@/lib/status";
-import { type CampusBuilding, FLOOR_HEIGHT, heightOf } from "./campusData";
-import { type Cell, type FloorPlan, floorY, roomLabel } from "./floorPlan";
+import { type CampusBuilding, heightOf } from "./campusData";
+import { type Cell, type FloorPlan, cellsOn, floorY, realToScene, roomLabel } from "./floorPlan";
 import type { CheckStatus } from "./StudentLayer";
 
 export type Occupant = {
@@ -186,6 +186,64 @@ function planTexture(plan: FloorPlan, floor: number, occupants: Occupant[], focu
   return { tex, W, H };
 }
 
+/** A real published floor map, placed on the footprint, with occupants marked. */
+function realTexture(plan: FloorPlan, floor: number, img: HTMLImageElement, occupants: Occupant[], focus: string | null) {
+  const real = plan.real.get(floor)!;
+  const W = plan.xMax - plan.xMin, H = plan.zMax - plan.zMin;
+  const ppm = Math.min(30, 2048 / Math.max(W, H));
+  const cv = document.createElement("canvas");
+  cv.width = Math.ceil(W * ppm);
+  cv.height = Math.ceil(H * ppm);
+  const g = cv.getContext("2d")!;
+  const X = (x: number) => (x - plan.xMin) * ppm;
+  const Y = (z: number) => (z - plan.zMin) * ppm;
+  // Clip to the footprint so the map's margins and labels stay outside.
+  g.save();
+  g.beginPath();
+  for (let i = 0; i < plan.outer.length; i += 2) (i ? g.lineTo(X(plan.outer[i]), Y(plan.outer[i + 1])) : g.moveTo(X(plan.outer[i]), Y(plan.outer[i + 1])));
+  g.closePath();
+  g.clip();
+  g.fillStyle = "#f4f4f2";
+  g.fillRect(0, 0, cv.width, cv.height);
+  const P = realToScene(real.plan, plan.xMin, plan.xMax, plan.zMin, plan.zMax);
+  const [ix0, iy0] = P(0, 0);
+  const [ix1, iy1] = P(real.plan.size[0], real.plan.size[1]);
+  g.drawImage(img, X(ix0), Y(iy0), X(ix1) - X(ix0), Y(iy1) - Y(iy0));
+  g.restore();
+  // Occupants: tint their room and print their name.
+  for (const o of occupants) {
+    if (o.floor !== floor) continue;
+    const isFocus = o.checkId === focus;
+    const [a, , b] = [o.cell.corners[0], o.cell.corners[1], o.cell.corners[2]];
+    g.fillStyle = isFocus ? "rgba(255,59,48,0.85)" : `${STATUS_COLORS[o.status]}aa`;
+    g.fillRect(X(a[0]), Y(a[1]), X(b[0]) - X(a[0]), Y(b[1]) - Y(a[1]));
+    g.fillStyle = "#fff";
+    g.font = `bold ${Math.max(10, ppm * 1.1)}px system-ui, sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(o.room, X(o.cell.center[0]), Y(o.cell.center[1]));
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return { tex, W, H };
+}
+
+function useImage(src: string | null) {
+  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    if (!src) return;
+    let alive = true;
+    const im = new Image();
+    im.onload = () => alive && setImg(im);
+    im.src = src;
+    return () => {
+      alive = false;
+    };
+  }, [src]);
+  return src ? img : null;
+}
+
 function tint(hex: string) {
   const c = new THREE.Color(hex).lerp(new THREE.Color("#f3efe8"), 0.45);
   return `#${c.getHexString()}`;
@@ -208,8 +266,14 @@ export default function BuildingInterior({
   const slab = useMemo(() => slabGeometry(building), [building]);
   const shell = useMemo(() => shellGeometry(building, top), [building, top]);
   const edges = useMemo(() => new THREE.EdgesGeometry(shell, 25), [shell]);
-  const partitions = useMemo(() => partitionGeometry(plan.cells), [plan]);
-  const { tex, W, H } = useMemo(() => planTexture(plan, floor, occupants, focusCheckId), [plan, floor, occupants, focusCheckId]);
+  const real = plan.real.get(floor) ?? null;
+  const realImg = useImage(real ? real.plan.img : null);
+  const cells = useMemo(() => cellsOn(plan, floor), [plan, floor]);
+  const partitions = useMemo(() => partitionGeometry(cells), [cells]);
+  const { tex, W, H } = useMemo(
+    () => (real && realImg ? realTexture(plan, floor, realImg, occupants, focusCheckId) : planTexture(plan, floor, occupants, focusCheckId)),
+    [plan, floor, occupants, focusCheckId, real, realImg],
+  );
 
   const planeGeo = useMemo(() => new THREE.PlaneGeometry(W, H).rotateX(-Math.PI / 2), [W, H]);
 
@@ -267,7 +331,7 @@ export default function BuildingInterior({
       )}
       <Html position={[center[0], top + 3, center[1]]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
         <div className="whitespace-nowrap rounded bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-zinc-700">
-          Floor {floor} of {plan.floors} · {FLOOR_HEIGHT.toFixed(1)} m storeys
+          Floor {floor} of {plan.floors} · {real ? "real UCR floor map" : "estimated layout"}
         </div>
       </Html>
     </group>
