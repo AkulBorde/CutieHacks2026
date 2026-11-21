@@ -1,4 +1,7 @@
 "use client";
+/* eslint-disable react-hooks/immutability --
+   three.js scene objects (instance matrices, uniforms, materials) are updated
+   in place every frame on purpose; they are GPU data, not React state. */
 
 // Owner: simulation
 //

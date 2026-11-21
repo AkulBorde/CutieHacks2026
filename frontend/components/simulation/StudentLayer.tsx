@@ -1,4 +1,7 @@
 "use client";
+/* eslint-disable react-hooks/immutability, react-hooks/refs --
+   three.js scene objects (instance matrices, uniforms, materials) are updated
+   in place every frame on purpose; they are GPU data, not React state. */
 
 // Owner: simulation
 //
@@ -13,6 +16,7 @@ import * as THREE from "three";
 import { STATUS_COLORS } from "@/lib/status";
 import { type CampusBuilding, type CampusData, heightOf } from "./campusData";
 import { buildSingle, pointInRing } from "./buildGeometry";
+import { buildingHasWing, parseRoom } from "./floorPlan";
 import { toScene } from "./geo";
 
 export type CheckStatus = "pending" | "calling" | "safe" | "needs_help" | "urgent" | "no_answer";
@@ -75,7 +79,10 @@ export function pinPosition(
   if (ids?.length) {
     // Prefer the bigger buildings of the hall (where the rooms are).
     const sorted = [...ids].sort((a, b) => data.buildings[b].area - data.buildings[a].area);
-    const pool = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.7)));
+    // Room "D210" lives in wing D: use the building(s) that hold that wing.
+    const wing = parseRoom(s.room)?.wing;
+    const inWing = wing ? sorted.filter((i) => buildingHasWing(data.buildings[i], wing)) : [];
+    const pool = inWing.length ? inWing : sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.7)));
     const bid = pool[h % pool.length];
     const b: CampusBuilding = data.buildings[bid];
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
