@@ -1,7 +1,7 @@
 import type { Doc, Id } from "@rollcall/backend/convex/_generated/dataModel";
 import { STATUS_COLORS, STATUS_LABELS, type CheckStatus } from "@/lib/status";
 
-// The call currently on screen. Comes from the checks table (query not written yet).
+// The call currently on screen: api.checks.currentCall.
 export type FeedCall = {
   checkId: Id<"checks">;
   studentName: string;

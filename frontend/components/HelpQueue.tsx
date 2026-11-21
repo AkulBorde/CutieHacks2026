@@ -1,7 +1,7 @@
 import type { Id } from "@rollcall/backend/convex/_generated/dataModel";
 import { STATUS_COLORS, STATUS_LABELS } from "@/lib/status";
 
-// What the dashboard needs from api.assignments.queue (not written yet).
+// One row of api.assignments.queue.
 export type QueueItem = {
   checkId: Id<"checks">;
   status: "urgent" | "needs_help";
@@ -14,6 +14,8 @@ export type QueueItem = {
     status: "proposed" | "offered" | "accepted" | "expired";
     responderName: string;
     etaMinutes: number;
+    // Present once the dispatcher has approved: the responder's link.
+    offerToken?: string;
   };
 };
 
@@ -64,9 +66,22 @@ export default function HelpQueue({
                 </button>
               )}
               {item.assignment && item.assignment.status !== "proposed" && (
-                <span className="text-xs uppercase text-zinc-500">
-                  {item.assignment.status}
-                </span>
+                <div className="flex flex-col items-end gap-1 text-xs">
+                  <span className="uppercase text-zinc-500">
+                    {item.assignment.status}
+                  </span>
+                  {item.assignment.status === "offered" &&
+                    item.assignment.offerToken && (
+                      <a
+                        href={`/r/${item.assignment.offerToken}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 underline"
+                      >
+                        Responder link
+                      </a>
+                    )}
+                </div>
               )}
             </li>
           ))}

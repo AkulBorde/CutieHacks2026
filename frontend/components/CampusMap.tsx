@@ -12,7 +12,7 @@ import { STATUS_COLORS, STATUS_LABELS, type CheckStatus } from "@/lib/status";
 const CAMPUS_CENTER: [number, number] = [33.9765, -117.3245];
 
 // One student's check in the current incident, placed at their building.
-// What the map needs from api.checks.listForIncident (not written yet).
+// One row of api.checks.listForIncident.
 export type StudentDot = {
   checkId: Id<"checks">;
   studentName: string;
