@@ -143,8 +143,11 @@ export default function CampusWorld({ data, hide, xray = null, onHover, onPick, 
 
   const pointer = {
     onPointerMove: (e: ThreeEvent<PointerEvent>) => {
+      const id = bidFromEvent(e);
+      // The x-rayed building is invisible; let the pointer reach what's inside it.
+      if (id != null && id === xray) return;
       e.stopPropagation();
-      onHover?.(bidFromEvent(e));
+      onHover?.(id);
     },
     onPointerOut: () => onHover?.(null),
     onDoubleClick: (e: ThreeEvent<MouseEvent>) => {
@@ -153,8 +156,9 @@ export default function CampusWorld({ data, hide, xray = null, onHover, onPick, 
       if (id != null) onInspect?.(id);
     },
     onClick: (e: ThreeEvent<MouseEvent>) => {
-      e.stopPropagation();
       const id = bidFromEvent(e);
+      if (id != null && id === xray) return;
+      e.stopPropagation();
       if (id != null) onPick?.(id);
     },
   };

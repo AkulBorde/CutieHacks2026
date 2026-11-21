@@ -10,6 +10,8 @@
 //  - Live: pass `students` (and `buildings`, `selectedIds`, `onToggle`) from
 //    Convex, the same props as components/CampusMap.tsx. Pins update the
 //    moment a check changes in the database.
+//  - Pick: pass `pickable` (hall names). The student taps a hall, then a room
+//    on its floor plan, and `onPickRoom` reports it (the /join sign-up).
 //  - Demo: pass nothing. A built-in panel runs a fully simulated check-in so
 //    the 3D campus can be shown on its own.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -34,7 +36,7 @@ import {
 } from "./StudentLayer";
 import { useDemoIncident, type IncidentKind } from "./useDemoIncident";
 import BuildingInterior, { type Occupant } from "./BuildingInterior";
-import { cellForRoom, parseRoom, planBuilding } from "./floorPlan";
+import { type Cell, cellForRoom, parseRoom, planBuilding, roomLabel } from "./floorPlan";
 
 type BuildingRow = { _id: string; name: string; lat: number; lng: number };
 
@@ -52,6 +54,12 @@ export type CampusSimProps = {
   focusCheckId?: string | null;
   /** Set to the incident's start time to play the earthquake shake once. */
   incidentStartedAt?: number | null;
+  // ---- pick mode (the /join room picker) ----
+  /** Hall names the student can choose from. Turns on pick mode. */
+  pickable?: string[];
+  onPickRoom?: (picked: { buildingName: string; room: string } | null) => void;
+  /** Open this hall's floor plan. Pass a new object each time to re-open. */
+  openBuilding?: { name: string } | null;
 };
 
 // ---------- camera: smooth fly-to, interrupted by the user ----------
@@ -128,7 +136,7 @@ function Quake({ startedAt, center, children }: { startedAt: number | null; cent
   );
 }
 
-function HoverLabel({ data, bid }: { data: CampusData; bid: number | null }) {
+function HoverLabel({ data, bid, hint = "click to add to zone" }: { data: CampusData; bid: number | null; hint?: string | null }) {
   if (bid == null) return null;
   const b = data.buildings[bid];
   if (!b) return null;
@@ -138,7 +146,7 @@ function HoverLabel({ data, bid }: { data: CampusData; bid: number | null }) {
     <Html position={[b.center[0], heightOf(b) + 6, b.center[1]]} center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
       <div className="whitespace-nowrap rounded-md bg-zinc-900/85 px-2 py-1 text-xs font-medium text-white shadow">
         {label}
-        {b.housing ? <span className="ml-1 text-zinc-400">· click to add to zone</span> : null}
+        {b.housing && hint ? <span className="ml-1 text-zinc-400">· {hint}</span> : null}
       </div>
     </Html>
   );
@@ -164,7 +172,8 @@ const EMPTY_DATA = { buildings: [] } as unknown as CampusData;
 
 export default function CampusSim(props: CampusSimProps) {
   const { className, quality: qualityProp } = props;
-  const live = props.students !== undefined;
+  const pickMode = props.pickable !== undefined;
+  const live = props.students !== undefined || pickMode;
   const [quality] = useState<"high" | "low">(() =>
     qualityProp ?? (typeof window !== "undefined" && /[?&]q=low/.test(window.location.search) ? "low" : "high"),
   );
@@ -175,6 +184,8 @@ export default function CampusSim(props: CampusSimProps) {
   const [goal, setGoal] = useState<Goal>(null);
   // Cutaway: which building is opened up, which floor, who is highlighted.
   const [inspect, setInspect] = useState<{ bid: number; floor: number; focus: string | null } | null>(null);
+  // Pick mode: the room the student tapped.
+  const [picked, setPicked] = useState<{ bid: number; floor: number; cell: Cell; room: string } | null>(null);
 
   // Demo-mode state.
   const demo = useDemoIncident();
@@ -220,10 +231,11 @@ export default function CampusSim(props: CampusSimProps) {
 
   // Zone: hall names that are selected.
   const zoneNames: string[] = useMemo(() => {
+    if (props.pickable) return props.pickable;
     if (!live) return demoZone;
     const ids = new Set(props.selectedIds ?? []);
     return (props.buildings ?? []).filter((b) => ids.has(b._id)).map((b) => b.name);
-  }, [live, demoZone, props.selectedIds, props.buildings]);
+  }, [live, demoZone, props.pickable, props.selectedIds, props.buildings]);
   const zoneIdx = useMemo(() => zoneNames.flatMap((n) => halls.get(n) ?? []), [zoneNames, halls]);
   const zoneCenter = useMemo<[number, number] | null>(() => {
     if (!data || !zoneIdx.length) return null;
@@ -241,7 +253,9 @@ export default function CampusSim(props: CampusSimProps) {
     if (!data) return;
     const name = data.buildings[bid]?.housing;
     if (!name) return;
-    if (live) {
+    if (pickMode) {
+      if (props.pickable?.includes(name)) inspectBuilding(bid);
+    } else if (live) {
       const row = (props.buildings ?? []).find((b) => b.name === name);
       if (row) props.onToggle?.(row._id);
     } else if (!demo.active) {
@@ -296,6 +310,41 @@ export default function CampusSim(props: CampusSimProps) {
     if (bid >= 0) inspectBuilding(bid);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
+  // Pick mode: open a hall when asked (its biggest building, where the rooms are).
+  const openReq = props.openBuilding;
+  useEffect(() => {
+    if (!data || !openReq) return;
+    const ids = halls.get(openReq.name) ?? [];
+    const bid = [...ids].sort((a, b) => data.buildings[b].area - data.buildings[a].area)[0];
+    if (bid != null) inspectBuilding(bid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, openReq]);
+  // Pick mode: start over the halls you can choose from.
+  useEffect(() => {
+    if (pickMode && zoneCenter) setGoal({ x: zoneCenter[0], z: zoneCenter[1], dist: 420 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickMode, zoneCenter == null]);
+  // A tapped room only counts while its building is open.
+  const activePick = picked && picked.bid === inspect?.bid ? picked : null;
+  const onPickRoom = props.onPickRoom;
+  useEffect(() => {
+    if (!pickMode || !data) return;
+    const name = activePick ? data.buildings[activePick.bid].housing : undefined;
+    onPickRoom?.(activePick && name ? { buildingName: name, room: activePick.room } : null);
+    // Report only when the pick itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePick]);
+  const pickCell = (cell: Cell, floor: number) => {
+    if (!inspect || !data) return;
+    const b = data.buildings[inspect.bid];
+    if (!b.housing) return;
+    const plan = planBuilding(b);
+    // Printed classroom numbers stay as they are; generated ones get wing + floor.
+    const room = /^\d+$/.test(cell.label) ? roomLabel(plan, cell, floor) : cell.label.split(" · ")[0];
+    setPicked({ bid: inspect.bid, floor, cell, room });
+    setInspect((i) => (i ? { ...i, focus: "you" } : i));
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setInspect(null);
@@ -318,8 +367,12 @@ export default function CampusSim(props: CampusSimProps) {
       const { cell, floor } = cellForRoom(plan, st.room);
       occupants.push({ checkId: st.checkId, name: st.studentName, status: st.status, room: st.room ?? `${plan.wing}${floor}${cell.label}`, floor, cell, isReal: st.isReal });
     }
+    if (activePick) {
+      occupants.push({ checkId: "you", name: "You", status: "safe", room: activePick.room, floor: activePick.floor, cell: activePick.cell, isReal: true, caption: "Your room" });
+    }
     return { b, plan, occupants };
-  }, [inspect, data, students, targets]);
+  }, [inspect, data, students, targets, activePick]);
+  const canPickHere = pickMode && !!cutaway?.b.housing && !!props.pickable?.includes(cutaway.b.housing);
   // Starting a check-in flies to the zone.
   useEffect(() => {
     if (incidentActive && zoneCenter) setGoal({ x: zoneCenter[0], z: zoneCenter[1], dist: 520 });
@@ -350,10 +403,10 @@ export default function CampusSim(props: CampusSimProps) {
         {data && <ZoneHighlight data={data} indices={zoneIdx} active={incidentActive} />}
         {data && <StudentPins data={data} students={students} halls={halls} onPick={flyToStudent} hideBid={inspect?.bid ?? null} />}
         {cutaway && inspect && (
-          <BuildingInterior building={cutaway.b} plan={cutaway.plan} floor={Math.min(inspect.floor, cutaway.plan.floors)} occupants={cutaway.occupants} focusCheckId={inspect.focus} />
+          <BuildingInterior building={cutaway.b} plan={cutaway.plan} floor={Math.min(inspect.floor, cutaway.plan.floors)} occupants={cutaway.occupants} focusCheckId={inspect.focus} onPickCell={canPickHere ? pickCell : undefined} />
         )}
         {data && <Responders responders={responders} targets={targets} />}
-        {data && <HoverLabel data={data} bid={hover} />}
+        {data && <HoverLabel data={data} bid={hover} hint={pickMode ? (props.pickable?.includes(data.buildings[hover ?? -1]?.housing ?? "") ? "click to choose" : null) : undefined} />}
         <MapControls makeDefault target={[180, 0, -180]} maxPolarAngle={Math.PI / 2.15} minDistance={30} maxDistance={4200} enableDamping dampingFactor={0.08} />
         <CameraRig goal={goal} onDone={() => setGoal(null)} />
         <PostFX quality={quality} />
@@ -385,14 +438,15 @@ export default function CampusSim(props: CampusSimProps) {
             setGoal({ x: o.cell.center[0], z: o.cell.center[1], y: (o.floor - 1) * 3.4, dist: 85, steep: true });
           }}
           onClose={() => setInspect(null)}
+          emptyText={canPickHere ? "Tap your room on the floor plan. Use the arrows to change floors." : undefined}
         />
       )}
-      {data && !inspect && (
+      {data && !inspect && !pickMode && (
         <div className="pointer-events-none absolute right-3 top-3 rounded-md bg-zinc-900/70 px-2.5 py-1.5 text-[11px] text-zinc-200">
           Double-click any building to look inside
         </div>
       )}
-      <Legend />
+      {!pickMode && <Legend />}
       <div className="pointer-events-none absolute bottom-1 right-2 text-[10px] text-zinc-800/80">Map data © OpenStreetMap contributors</div>
     </div>
   );
@@ -557,7 +611,9 @@ function InspectPanel({
   onFloor,
   onPick,
   onClose,
+  emptyText = "No one checked in here for this incident.",
 }: {
+  emptyText?: string;
   title: string;
   subtitle?: string;
   floor: number;
@@ -588,7 +644,7 @@ function InspectPanel({
         <div className={`rounded-lg p-2.5 ${focused.status === "urgent" ? "bg-red-900/80" : focused.status === "needs_help" ? "bg-red-600/80" : "bg-zinc-800"}`}>
           <div className="font-semibold">{focused.name}</div>
           <div className="text-xs opacity-90">
-            Room {focused.room} · floor {focused.floor} · {STATUS_LABELS[focused.status]}
+            Room {focused.room} · floor {focused.floor} · {focused.caption ?? STATUS_LABELS[focused.status]}
           </div>
         </div>
       )}
@@ -618,7 +674,7 @@ function InspectPanel({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mb-1 text-xs font-semibold text-zinc-300">People in this building ({occupants.length})</div>
-        {list.length === 0 && <div className="text-xs text-zinc-500">No one checked in here for this incident.</div>}
+        {list.length === 0 && <div className="text-xs text-zinc-500">{emptyText}</div>}
         {list.map((o) => (
           <button key={o.checkId} onClick={() => onPick(o.checkId)} className={`flex w-full items-center justify-between rounded px-2 py-1 text-left text-xs hover:bg-zinc-800 ${o.checkId === focus ? "bg-zinc-800" : ""}`}>
             <span>
