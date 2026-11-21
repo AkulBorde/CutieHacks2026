@@ -19,6 +19,9 @@ export type Offer = {
   // only named a building.
   buildingName: string;
   room?: string;
+  // Their own words, when they named a place that could not be matched to a
+  // building. The building above is only their dorm then.
+  unmatchedLocation?: string;
   need: string;
   distanceMeters: number;
   etaMinutes: number;
@@ -39,6 +42,12 @@ export default function OfferCard({
   const place = offer.room
     ? `${offer.buildingName}, room ${offer.room}`
     : offer.buildingName;
+  const unmatched = offer.unmatchedLocation && (
+    <p className="text-sm font-medium text-amber-700">
+      They said &ldquo;{offer.unmatchedLocation}&rdquo;, which is not a building
+      we know. This is their dorm room, so they may not be there.
+    </p>
+  );
 
   if (offer.status === "accepted") {
     return (
@@ -46,6 +55,7 @@ export default function OfferCard({
         <p className="rounded-lg bg-green-50 p-4 text-lg font-medium text-green-800">
           You&apos;re confirmed. Go to {place}.
         </p>
+        {unmatched}
         <p>{offer.need}</p>
         <RouteMap
           from={offer.from}
@@ -64,6 +74,7 @@ export default function OfferCard({
       <div>
         <p className="text-xl font-semibold">{offer.studentName}</p>
         <p className="text-zinc-600">{place}</p>
+        {unmatched}
       </div>
 
       <p>{offer.need}</p>

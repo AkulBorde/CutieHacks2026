@@ -10,6 +10,11 @@ export type QueueItem = {
   // call, or their dorm room. No room if they only named a building.
   buildingName: string;
   room?: string;
+  // Their registered room, when they said they are somewhere else.
+  dorm?: { buildingName: string; room: string };
+  // Their own words, when they named a place that could not be matched to a
+  // building. The building above is only their dorm then.
+  unmatchedLocation?: string;
   // Missing until a responder has been proposed for this check.
   assignment?: {
     id: Id<"assignments">;
@@ -53,6 +58,18 @@ export default function HelpQueue({
                   {item.buildingName}
                   {item.room ? `, room ${item.room}` : ""}
                 </p>
+                {item.dorm && (
+                  <p className="text-xs text-zinc-400">
+                    Said on the call. Dorm: {item.dorm.buildingName}, room{" "}
+                    {item.dorm.room}
+                  </p>
+                )}
+                {item.unmatchedLocation && (
+                  <p className="text-xs font-medium text-amber-700">
+                    Said &ldquo;{item.unmatchedLocation}&rdquo;, which is not a
+                    building we know. Showing their dorm.
+                  </p>
+                )}
                 <p className="text-zinc-500">
                   {item.assignment
                     ? `${item.assignment.responderName}, about ${item.assignment.etaMinutes} min`
