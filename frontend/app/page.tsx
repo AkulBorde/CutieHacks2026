@@ -1,8 +1,16 @@
 "use client";
 
 // Dispatcher dashboard. Owner: frontend.
+import dynamic from "next/dynamic";
 import { useQuery } from "convex/react";
 import { api } from "@rollcall/backend/convex/_generated/api";
+
+const CampusMap = dynamic(() => import("@/components/CampusMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[480px] w-full animate-pulse rounded-lg bg-zinc-100" />
+  ),
+});
 
 export default function Dashboard() {
   // Live subscription: re-renders whenever the buildings table changes.
@@ -20,8 +28,9 @@ export default function Dashboard() {
 
       {/* TODO counter bar: accounted for / need help / urgent / no answer */}
       {/* TODO Start Roll Call button: incident type + selected buildings */}
-      {/* TODO map: Leaflet, one dot per student. Load it with next/dynamic
-          and ssr: false, or the build fails on `window`. */}
+
+      <CampusMap buildings={buildings ?? []} />
+
       {/* TODO help queue: urgent first, with Approve */}
       {/* TODO live feed: transcript + extracted answers, manual override */}
       {/* TODO honesty counter */}
