@@ -18,14 +18,11 @@ import {
   useMapEvents,
 } from "react-leaflet";
 import { distanceMeters } from "@rollcall/backend/convex/lib/geo";
-import {
-  type CampusData,
-  hallBuildingFor,
-  hallIndexOf,
-} from "@/components/simulation/campusData";
+import { type CampusData, hallIndexOf } from "@/components/simulation/campusData";
 import {
   cellForRoom,
   cellsOn,
+  hallBuildingFor,
   parseRoom,
   planBuilding,
   roomLabel,
@@ -122,7 +119,7 @@ function useRoom(buildingName: string, checkId: string, room: string) {
         if (cancelled || !data) return;
         const ids = hallIndexOf(data).get(buildingName);
         if (!ids?.length) return;
-        const b = data.buildings[hallBuildingFor(checkId, ids, data)];
+        const b = data.buildings[hallBuildingFor(checkId, room, ids, data)];
         const plan = planBuilding(b, parseRoom(room)?.wing ?? "");
         const { cell, floor } = cellForRoom(plan, room);
         const center = toLatLng(cell.center[0], cell.center[1]);

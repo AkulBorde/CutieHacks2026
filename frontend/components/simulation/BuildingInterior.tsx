@@ -99,7 +99,14 @@ function partitionGeometry(cells: Cell[]) {
 }
 
 /** The floor plan drawn on a canvas in world x,z: hallway, rooms, numbers, occupants. */
-function planTexture(plan: FloorPlan, floor: number, occupants: Occupant[], focus: string | null) {
+function planTexture(
+  plan: FloorPlan,
+  floor: number,
+  occupants: Occupant[],
+  focus: string | null,
+  hallImg: HTMLImageElement | null = null,
+  roomImg: HTMLImageElement | null = null,
+) {
   const W = plan.xMax - plan.xMin, H = plan.zMax - plan.zMin;
   const ppm = Math.min(30, 2048 / Math.max(W, H));
   const cv = document.createElement("canvas");
@@ -110,7 +117,10 @@ function planTexture(plan: FloorPlan, floor: number, occupants: Occupant[], focu
   const Y = (z: number) => (z - plan.zMin) * ppm;
   const path = (r: number[]) => {
     g.beginPath();
-    for (let i = 0; i < r.length; i += 2) (i ? g.lineTo(X(r[i]), Y(r[i + 1])) : g.moveTo(X(r[i]), Y(r[i + 1])));
+    for (let i = 0; i < r.length; i += 2) {
+      if (i) g.lineTo(X(r[i]), Y(r[i + 1]));
+      else g.moveTo(X(r[i]), Y(r[i + 1]));
+    }
     g.closePath();
   };
 
@@ -125,6 +135,23 @@ function planTexture(plan: FloorPlan, floor: number, occupants: Occupant[], focu
   }
   g.globalCompositeOperation = "source-over";
 
+  // The hall's real ground-floor community map, fitted to this footprint.
+  // Full strength on floor 1; faded on upper floors (stairs, elevators and
+  // wings line up, the lobby and offices are only on the ground floor).
+  const hm = plan.hallMap;
+  if (hm && hallImg) {
+    g.save();
+    path(plan.outer);
+    g.clip();
+    g.globalAlpha = floor === 1 ? 0.95 : 0.3;
+    const [a, b, c, d, e, f] = hm.affine;
+    // canvas = ppm * (scene - min); scene = affine(px, py)
+    g.setTransform(ppm * a, ppm * d, ppm * b, ppm * e, ppm * (c - plan.xMin), ppm * (f - plan.zMin));
+    g.drawImage(hallImg, 0, 0);
+    g.restore();
+  }
+  const roomAlpha = hm && hallImg && floor === 1 ? 0.6 : 1;
+
   const byCell = new Map<Cell, Occupant>();
   for (const o of occupants) if (o.floor === floor) byCell.set(o.cell, o);
 
@@ -138,12 +165,36 @@ function planTexture(plan: FloorPlan, floor: number, occupants: Occupant[], focu
       c.kind === "stairs" ? "#e7d27a" :
       c.kind === "lounge" ? "#d9c9e8" : "#cfae84";
     g.beginPath();
-    c.corners.forEach(([x, z], i) => (i ? g.lineTo(X(x), Y(z)) : g.moveTo(X(x), Y(z))));
+    c.corners.forEach(([x, z], i) => {
+      if (i) g.lineTo(X(x), Y(z));
+      else g.moveTo(X(x), Y(z));
+    });
     g.closePath();
+    g.globalAlpha = isFocus ? 1 : roomAlpha;
     g.fill();
+    g.globalAlpha = 1;
     g.strokeStyle = "rgba(60,50,40,0.55)";
     g.lineWidth = 1;
     g.stroke();
+    // The student's own room: the published double-room layout (beds, desks,
+    // closets), window on the outside wall and door on the hallway.
+    if (isFocus && roomImg && hm?.roomPlan) {
+      const [sx0, sy0, sx1, sy1] = hm.roomPlan.crop;
+      const W2 = sx1 - sx0, H2 = sy1 - sy0;
+      const [c0, c1, , c3] = c.corners;
+      g.save();
+      g.setTransform(
+        (X(c1[0]) - X(c0[0])) / W2, (Y(c1[1]) - Y(c0[1])) / W2,
+        (X(c3[0]) - X(c0[0])) / H2, (Y(c3[1]) - Y(c0[1])) / H2,
+        X(c0[0]), Y(c0[1]),
+      );
+      g.globalAlpha = 0.9;
+      g.drawImage(roomImg, sx0, sy0, W2, H2, 0, 0, W2, H2);
+      g.restore();
+      g.strokeStyle = "#ff3b30";
+      g.lineWidth = Math.max(3, ppm * 0.3);
+      g.stroke();
+    }
 
     // Text along the wall, kept upright.
     const [cx, cz] = c.center;
@@ -169,6 +220,12 @@ function planTexture(plan: FloorPlan, floor: number, occupants: Occupant[], focu
     const text = c.kind === "room" ? occ?.room ?? roomLabel(plan, c, floor) : c.label;
     const size = c.kind === "room" ? Math.max(9, Math.min(wPx * 0.27, 22)) : Math.max(8, Math.min(wPx * 0.16, 13));
     g.font = `${isFocus ? "bold " : c.kind === "room" ? "600 " : ""}${size}px system-ui, sans-serif`;
+    if (isFocus && roomImg) {
+      // Room number as a red tag so the furniture stays readable.
+      const tw = g.measureText(text).width + 10;
+      g.fillStyle = "#ff3b30";
+      g.fillRect(-tw / 2, -size * 0.7, tw, size * 1.4);
+    }
     g.fillStyle = isFocus ? "#ffffff" : c.kind === "room" ? "#2b2622" : "#3d3a36";
     g.fillText(text, 0, 0);
     g.restore();
@@ -203,7 +260,10 @@ function realTexture(plan: FloorPlan, floor: number, img: HTMLImageElement, occu
   // Clip to the footprint so the map's margins and labels stay outside.
   g.save();
   g.beginPath();
-  for (let i = 0; i < plan.outer.length; i += 2) (i ? g.lineTo(X(plan.outer[i]), Y(plan.outer[i + 1])) : g.moveTo(X(plan.outer[i]), Y(plan.outer[i + 1])));
+  for (let i = 0; i < plan.outer.length; i += 2) {
+    if (i) g.lineTo(X(plan.outer[i]), Y(plan.outer[i + 1]));
+    else g.moveTo(X(plan.outer[i]), Y(plan.outer[i + 1]));
+  }
   g.closePath();
   g.clip();
   g.fillStyle = "#f4f4f2";
@@ -274,11 +334,16 @@ export default function BuildingInterior({
   const edges = useMemo(() => new THREE.EdgesGeometry(shell, 25), [shell]);
   const real = plan.real.get(floor) ?? null;
   const realImg = useImage(real ? real.plan.img : null);
+  const hallImg = useImage(plan.hallMap?.img ?? null);
+  const roomImg = useImage(plan.hallMap?.roomPlan?.img ?? null);
   const cells = useMemo(() => cellsOn(plan, floor), [plan, floor]);
   const partitions = useMemo(() => partitionGeometry(cells), [cells]);
   const { tex, W, H } = useMemo(
-    () => (real && realImg ? realTexture(plan, floor, realImg, occupants, focusCheckId) : planTexture(plan, floor, occupants, focusCheckId)),
-    [plan, floor, occupants, focusCheckId, real, realImg],
+    () =>
+      real && realImg
+        ? realTexture(plan, floor, realImg, occupants, focusCheckId)
+        : planTexture(plan, floor, occupants, focusCheckId, hallImg, roomImg),
+    [plan, floor, occupants, focusCheckId, real, realImg, hallImg, roomImg],
   );
 
   // The room under a click on the floor plan, if it's a room a person lives in.
@@ -358,7 +423,8 @@ export default function BuildingInterior({
       )}
       <Html position={[center[0], top + 3, center[1]]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
         <div className="whitespace-nowrap rounded bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-zinc-700">
-          Floor {floor} of {plan.floors} · {real ? "real UCR floor map" : "estimated layout"}
+          Floor {floor} of {plan.floors} ·{" "}
+          {real ? "real UCR floor map" : plan.hallMap ? (floor === 1 ? "UCR Housing community map + rooms by wing" : "rooms by wing · ground-floor map faded") : "estimated layout"}
         </div>
       </Html>
     </group>

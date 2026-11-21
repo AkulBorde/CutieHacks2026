@@ -152,7 +152,8 @@ function addFlatRoof(gb: GeoBuilder, outer: Ring, holes: Ring[], y: number, c: T
   }
   const { pts, faces } = tri;
   for (const f of faces) {
-    let [i0, i1, i2] = f;
+    const i0 = f[0];
+    let i1 = f[1], i2 = f[2];
     const p0 = pts[i0], p1 = pts[i1], p2 = pts[i2];
     // y of the 3D cross product; must be positive to face the sky.
     const cy = (p1.y - p0.y) * (p2.x - p0.x) - (p1.x - p0.x) * (p2.y - p0.y);

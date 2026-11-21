@@ -1,4 +1,7 @@
 "use client";
+/* eslint-disable react-hooks/immutability, react-hooks/refs --
+   three.js scene objects (instance matrices, uniforms, materials) are updated
+   in place every frame on purpose; they are GPU data, not React state. */
 
 // Owner: simulation
 //
@@ -11,8 +14,9 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { STATUS_COLORS } from "@/lib/status";
-import { type CampusBuilding, type CampusData, hallBuildingFor, hallIndexOf, heightOf } from "./campusData";
+import { type CampusBuilding, type CampusData, hallIndexOf, heightOf } from "./campusData";
 import { buildSingle, pointInRing } from "./buildGeometry";
+import { hallBuildingFor } from "./floorPlan";
 import { toScene } from "./geo";
 
 export type CheckStatus = "pending" | "calling" | "safe" | "needs_help" | "urgent" | "no_answer";
@@ -65,7 +69,7 @@ export function pinPosition(
   const ids = s.buildingName ? halls.get(s.buildingName) : undefined;
   const h = hash(s.checkId);
   if (ids?.length) {
-    const bid = hallBuildingFor(s.checkId, ids, data);
+    const bid = hallBuildingFor(s.checkId, s.room, ids, data);
     const b: CampusBuilding = data.buildings[bid];
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (let i = 0; i < b.outer.length; i += 2) {

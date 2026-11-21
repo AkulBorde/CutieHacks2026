@@ -1,5 +1,7 @@
 // Owner: simulation
 //
+import { PENTLAND_LETTERS } from "./realPlans";
+
 // Types for public/ucr/campus.json (built by scripts/build-campus-data.mjs)
 // and the rules that turn OSM tags into heights and building styles.
 
@@ -109,24 +111,6 @@ export function hash01(s: string): number {
   return ((h >>> 0) % 10000) / 10000;
 }
 
-/**
- * Which of a hall's buildings a student lives in. We only store the hall's
- * name, so pick one of its bigger buildings (where the rooms are), stably by
- * the check id. The 3D pins and the responder map both use this, so they
- * agree.
- */
-export function hallBuildingFor(key: string, ids: number[], data: CampusData): number {
-  let h = 2166136261;
-  for (let i = 0; i < key.length; i++) {
-    h ^= key.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  h >>>= 0;
-  const sorted = [...ids].sort((a, b) => data.buildings[b].area - data.buildings[a].area);
-  const pool = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.7)));
-  return pool[h % pool.length];
-}
-
 /** Housing community (or building name) -> indexes of its buildings. */
 export function hallIndexOf(data: CampusData): Map<string, number[]> {
   const m = new Map<string, number[]>();
@@ -142,17 +126,31 @@ export function hallIndexOf(data: CampusData): Map<string, number[]> {
  * Loads the saved campus. If it hasn't been saved yet, downloads it from
  * OpenStreetMap and (in dev) saves it to public/ucr/campus.json for next time.
  */
+/**
+ * OpenStreetMap leaves most Pentland Hills buildings unnamed. The community
+ * map identifies all of them (A-Q), so tag them here.
+ */
+export function fixHousing(data: CampusData): CampusData {
+  for (const b of data.buildings) {
+    if (PENTLAND_LETTERS[b.id]) {
+      b.housing = "Pentland Hills";
+      b.housingKind = "residence_hall";
+    }
+  }
+  return data;
+}
+
 export async function loadCampus(onStatus?: (s: string) => void): Promise<CampusData> {
   const res = await fetch("/ucr/campus.json").catch(() => null);
   if (res?.ok) {
     try {
-      return await res.json();
+      return fixHousing(await res.json());
     } catch {
       // fall through and re-download
     }
   }
   const { downloadCampus } = await import("./osmToCampus");
-  const data = await downloadCampus(onStatus);
+  const data = fixHousing(await downloadCampus(onStatus));
   fetch("/api/sim/campus", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

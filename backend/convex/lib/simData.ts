@@ -14,11 +14,12 @@ export type SimHall = {
 };
 
 // Coordinates are the OpenStreetMap positions of each community. Names match
-// the labels on the 3D campus and the halls in seed.ts.
+// the labels on the 3D campus and the halls in seed.ts. Wing letters for A-I,
+// Lothian and Pentland Hills are the real ones from the Housing community maps.
 export const SIM_HALLS: SimHall[] = [
-  { name: "Aberdeen-Inverness", lat: 33.97838, lng: -117.3257, students: 7, wings: ["A", "I"] },
-  { name: "Lothian", lat: 33.97595, lng: -117.32275, students: 7, wings: ["E", "W"] },
-  { name: "Pentland Hills", lat: 33.97778, lng: -117.32265, students: 6, wings: ["B", "C", "D"] },
+  { name: "Aberdeen-Inverness", lat: 33.97838, lng: -117.3257, students: 7, wings: ["A", "B", "D", "E"] },
+  { name: "Lothian", lat: 33.97595, lng: -117.32275, students: 7, wings: ["A", "B", "D", "E", "F"] },
+  { name: "Pentland Hills", lat: 33.97778, lng: -117.32265, students: 6, wings: ["A", "D", "E", "H", "J", "K", "L", "M", "N", "O", "P"] },
   { name: "Dundee", lat: 33.97875, lng: -117.3244, students: 6, wings: ["A", "B"] },
   { name: "North District", lat: 33.98003, lng: -117.32684, students: 6, wings: ["A", "B"] },
   { name: "Glen Mor", lat: 33.9779, lng: -117.32008, students: 5, wings: ["1", "2"] },
