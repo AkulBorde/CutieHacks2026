@@ -56,7 +56,7 @@ const MINOR_TYPES = new Set(["garage", "garages", "shed", "carport", "roof", "hu
 const HOUSING_LEVELS: Record<string, number> = {
   "Aberdeen-Inverness": 4,
   Lothian: 4,
-  Dundee: 6,
+  Dundee: 7, // two L-shaped seven-storey buildings
   "Pentland Hills": 4,
   "North District": 5,
   "Glen Mor": 4,

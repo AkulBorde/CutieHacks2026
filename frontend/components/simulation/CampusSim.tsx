@@ -33,6 +33,8 @@ import {
   type SimStudentDot,
 } from "./StudentLayer";
 import { useDemoIncident, type IncidentKind } from "./useDemoIncident";
+import BuildingInterior, { type Occupant } from "./BuildingInterior";
+import { cellForRoom, parseRoom, planBuilding } from "./floorPlan";
 
 type BuildingRow = { _id: string; name: string; lat: number; lng: number };
 
@@ -54,7 +56,7 @@ export type CampusSimProps = {
 
 // ---------- camera: smooth fly-to, interrupted by the user ----------
 
-type Goal = { x: number; z: number; dist: number } | null;
+type Goal = { x: number; z: number; dist: number; y?: number; steep?: boolean } | null;
 type Controls = {
   target: THREE.Vector3;
   update: () => void;
@@ -81,9 +83,12 @@ function CameraRig({ goal, onDone }: { goal: Goal; onDone: () => void }) {
     const g = goalRef.current;
     if (!g || !controls) return;
     const k = 1 - Math.exp(-dt * 2.2);
-    const tgt = new THREE.Vector3(g.x, 0, g.z);
-    // Look from the south-west, slightly above, at `dist` metres.
-    const pos = new THREE.Vector3(g.x - g.dist * 0.55, g.dist * 0.7, g.z + g.dist * 0.6);
+    const ty = g.y ?? 0;
+    const tgt = new THREE.Vector3(g.x, ty, g.z);
+    // Look from the south-west at `dist` metres; steeper when looking into a floor.
+    const pos = g.steep
+      ? new THREE.Vector3(g.x - g.dist * 0.16, ty + g.dist * 1.0, g.z + g.dist * 0.24)
+      : new THREE.Vector3(g.x - g.dist * 0.55, ty + g.dist * 0.7, g.z + g.dist * 0.6);
     controls.target.lerp(tgt, k);
     camera.position.lerp(pos, k);
     controls.update();
@@ -168,6 +173,8 @@ export default function CampusSim(props: CampusSimProps) {
   const [hover, setHover] = useState<number | null>(null);
   const [status, setStatus] = useState("Loading UCR campus...");
   const [goal, setGoal] = useState<Goal>(null);
+  // Cutaway: which building is opened up, which floor, who is highlighted.
+  const [inspect, setInspect] = useState<{ bid: number; floor: number; focus: string | null } | null>(null);
 
   // Demo-mode state.
   const demo = useDemoIncident();
@@ -249,18 +256,59 @@ export default function CampusSim(props: CampusSimProps) {
     return m;
   }, [students, data, halls]);
 
-  const flyToStudent = (checkId: string) => {
-    const t = targets.get(checkId);
-    if (t) setGoal({ x: t.x, z: t.z, dist: 140 });
+  const openStudent = (checkId: string) => {
+    const t = targets.get(checkId) as ({ x: number; z: number; bid?: number } | undefined);
+    const s = students.find((x) => x.checkId === checkId);
+    if (!t || !data) return;
+    if (t.bid != null && t.bid >= 0) {
+      const b = data.buildings[t.bid];
+      const plan = planBuilding(b, parseRoom(s?.room)?.wing ?? "");
+      const { cell, floor } = cellForRoom(plan, s?.room);
+      setInspect({ bid: t.bid, floor, focus: checkId });
+      setGoal({ x: cell.center[0], z: cell.center[1], y: (floor - 1) * 3.4, dist: 85, steep: true });
+    } else {
+      setGoal({ x: t.x, z: t.z, dist: 140 });
+    }
   };
+  const flyToStudent = openStudent;
   const focus = props.focusCheckId;
   useEffect(() => {
-    if (!focus) return;
-    const t = targets.get(focus);
-    if (t) setGoal({ x: t.x, z: t.z, dist: 140 });
+    if (focus) openStudent(focus);
     // Only re-fly when the requested student changes, not when pins move.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
+
+  // Double-click any building to look inside it.
+  const inspectBuilding = (bid: number) => {
+    if (!data) return;
+    const b = data.buildings[bid];
+    setInspect({ bid, floor: 1, focus: null });
+    setGoal({ x: b.center[0], z: b.center[1], y: 0, dist: Math.max(70, Math.sqrt(b.area) * 1.6), steep: true });
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setInspect(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // The opened building: its plan and who's inside, room by room.
+  const cutaway = useMemo(() => {
+    if (!inspect || !data) return null;
+    const b = data.buildings[inspect.bid];
+    if (!b) return null;
+    const focusStudent = students.find((x) => x.checkId === inspect.focus);
+    const plan = planBuilding(b, parseRoom(focusStudent?.room)?.wing ?? parseRoom(students.find((x) => (targets.get(x.checkId) as { bid?: number } | undefined)?.bid === inspect.bid)?.room)?.wing ?? "");
+    const occupants: Occupant[] = [];
+    for (const st of students) {
+      const t = targets.get(st.checkId) as { bid?: number } | undefined;
+      if (t?.bid !== inspect.bid) continue;
+      const { cell, floor } = cellForRoom(plan, st.room);
+      occupants.push({ checkId: st.checkId, name: st.studentName, status: st.status, room: st.room ?? `${plan.wing}${floor}${cell.label}`, floor, cell, isReal: st.isReal });
+    }
+    return { b, plan, occupants };
+  }, [inspect, data, students, targets]);
   // Starting a check-in flies to the zone.
   useEffect(() => {
     if (incidentActive && zoneCenter) setGoal({ x: zoneCenter[0], z: zoneCenter[1], dist: 520 });
@@ -285,11 +333,14 @@ export default function CampusSim(props: CampusSimProps) {
         <Sky sunPosition={sun} turbidity={4.5} rayleigh={0.9} mieCoefficient={0.005} mieDirectionalG={0.82} distance={20000} />
         <Quake startedAt={quakeAt} center={zoneCenter}>
           <Environment data={data} />
-          {data && <CampusWorld data={data} hide={landmarks.hide} onHover={setHover} onPick={toggleHall} />}
+          {data && <CampusWorld data={data} hide={landmarks.hide} xray={inspect?.bid ?? null} onHover={setHover} onPick={toggleHall} onInspect={inspectBuilding} />}
           {landmarks.bell && <BellTower x={landmarks.bell[0]} z={landmarks.bell[1]} />}
         </Quake>
         {data && <ZoneHighlight data={data} indices={zoneIdx} active={incidentActive} />}
-        {data && <StudentPins data={data} students={students} halls={halls} onPick={flyToStudent} />}
+        {data && <StudentPins data={data} students={students} halls={halls} onPick={flyToStudent} hideBid={inspect?.bid ?? null} />}
+        {cutaway && inspect && (
+          <BuildingInterior building={cutaway.b} plan={cutaway.plan} floor={Math.min(inspect.floor, cutaway.plan.floors)} occupants={cutaway.occupants} focusCheckId={inspect.focus} />
+        )}
         {data && <Responders responders={responders} targets={targets} />}
         {data && <HoverLabel data={data} bid={hover} />}
         <MapControls makeDefault target={[180, 0, -180]} maxPolarAngle={Math.PI / 2.15} minDistance={30} maxDistance={4200} enableDamping dampingFactor={0.08} />
@@ -305,6 +356,30 @@ export default function CampusSim(props: CampusSimProps) {
 
       {data && !live && (
         <DemoPanel zone={demoZone} kind={kind} setKind={setKind} demo={demo} onFly={flyToStudent} onHome={() => setGoal({ x: 180, z: -180, dist: 640 })} />
+      )}
+      {cutaway && inspect && (
+        <InspectPanel
+          title={cutaway.b.housing ?? (cutaway.b.name || "Building")}
+          subtitle={cutaway.b.housing && cutaway.b.name && cutaway.b.name !== cutaway.b.housing ? cutaway.b.name : undefined}
+          floor={Math.min(inspect.floor, cutaway.plan.floors)}
+          floors={cutaway.plan.floors}
+          rooms={cutaway.plan.cells.filter((c) => c.kind === "room").length}
+          occupants={cutaway.occupants}
+          focus={inspect.focus}
+          onFloor={(f) => setInspect((i) => (i ? { ...i, floor: f } : i))}
+          onPick={(id) => {
+            const o = cutaway.occupants.find((x) => x.checkId === id);
+            if (!o) return;
+            setInspect((i) => (i ? { ...i, floor: o.floor, focus: id } : i));
+            setGoal({ x: o.cell.center[0], z: o.cell.center[1], y: (o.floor - 1) * 3.4, dist: 85, steep: true });
+          }}
+          onClose={() => setInspect(null)}
+        />
+      )}
+      {data && !inspect && (
+        <div className="pointer-events-none absolute right-3 top-3 rounded-md bg-zinc-900/70 px-2.5 py-1.5 text-[11px] text-zinc-200">
+          Double-click any building to look inside
+        </div>
       )}
       <Legend />
       <div className="pointer-events-none absolute bottom-1 right-2 text-[10px] text-zinc-800/80">Map data © OpenStreetMap contributors</div>
@@ -456,6 +531,95 @@ function DemoPanel({
           </button>
         </>
       )}
+    </div>
+  );
+}
+
+function InspectPanel({
+  title,
+  subtitle,
+  floor,
+  floors,
+  rooms,
+  occupants,
+  focus,
+  onFloor,
+  onPick,
+  onClose,
+}: {
+  title: string;
+  subtitle?: string;
+  floor: number;
+  floors: number;
+  rooms: number;
+  occupants: Occupant[];
+  focus: string | null;
+  onFloor: (f: number) => void;
+  onPick: (checkId: string) => void;
+  onClose: () => void;
+}) {
+  const focused = occupants.find((o) => o.checkId === focus);
+  const rank = (s: string) => (s === "urgent" ? 0 : s === "needs_help" ? 1 : s === "calling" || s === "pending" ? 2 : s === "no_answer" ? 3 : 4);
+  const list = [...occupants].sort((a, b) => rank(a.status) - rank(b.status) || a.floor - b.floor);
+  return (
+    <div className="absolute right-3 top-3 flex max-h-[calc(100%-5rem)] w-72 flex-col gap-3 rounded-xl bg-zinc-950/88 p-4 text-sm text-zinc-100 shadow-2xl backdrop-blur">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-400">Inside view</div>
+          <div className="text-base font-semibold leading-tight">{title}</div>
+          {subtitle ? <div className="text-xs text-zinc-400">{subtitle}</div> : null}
+        </div>
+        <button onClick={onClose} className="rounded bg-zinc-800 px-2 py-1 text-[11px] hover:bg-zinc-700">
+          Exit (Esc)
+        </button>
+      </div>
+      {focused && (
+        <div className={`rounded-lg p-2.5 ${focused.status === "urgent" ? "bg-red-900/80" : focused.status === "needs_help" ? "bg-red-600/80" : "bg-zinc-800"}`}>
+          <div className="font-semibold">{focused.name}</div>
+          <div className="text-xs opacity-90">
+            Room {focused.room} · floor {focused.floor} · {STATUS_LABELS[focused.status]}
+          </div>
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <button disabled={floor <= 1} onClick={() => onFloor(floor - 1)} className="rounded bg-zinc-800 px-2.5 py-1 hover:bg-zinc-700 disabled:opacity-30">
+          ▼
+        </button>
+        <div className="flex-1 text-center">
+          <div className="text-lg font-bold">Floor {floor}</div>
+          <div className="text-[10px] text-zinc-400">
+            of {floors} · {rooms} rooms per floor
+          </div>
+        </div>
+        <button disabled={floor >= floors} onClick={() => onFloor(floor + 1)} className="rounded bg-zinc-800 px-2.5 py-1 hover:bg-zinc-700 disabled:opacity-30">
+          ▲
+        </button>
+      </div>
+      <div className="flex gap-1">
+        {Array.from({ length: floors }, (_, i) => i + 1).map((f) => {
+          const bad = occupants.some((o) => o.floor === f && (o.status === "needs_help" || o.status === "urgent"));
+          return (
+            <button key={f} onClick={() => onFloor(f)} className={`flex-1 rounded py-1 text-xs ${f === floor ? "bg-white text-zinc-900" : bad ? "bg-red-700" : "bg-zinc-800 hover:bg-zinc-700"}`}>
+              {f}
+            </button>
+          );
+        })}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mb-1 text-xs font-semibold text-zinc-300">People in this building ({occupants.length})</div>
+        {list.length === 0 && <div className="text-xs text-zinc-500">No one checked in here for this incident.</div>}
+        {list.map((o) => (
+          <button key={o.checkId} onClick={() => onPick(o.checkId)} className={`flex w-full items-center justify-between rounded px-2 py-1 text-left text-xs hover:bg-zinc-800 ${o.checkId === focus ? "bg-zinc-800" : ""}`}>
+            <span>
+              <span className="mr-1.5 inline-block h-2 w-2 rounded-full" style={{ background: STATUS_COLORS[o.status] }} />
+              {o.name}
+            </span>
+            <span className="text-zinc-400">
+              {o.room} · F{o.floor}
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

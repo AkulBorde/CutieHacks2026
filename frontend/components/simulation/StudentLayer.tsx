@@ -69,14 +69,15 @@ export function pinPosition(
   s: SimStudentDot,
   data: CampusData,
   halls: Map<string, number[]>,
-): { x: number; z: number; y: number; ground: number } {
+): { x: number; z: number; y: number; ground: number; bid: number } {
   const ids = s.buildingName ? halls.get(s.buildingName) : undefined;
   const h = hash(s.checkId);
   if (ids?.length) {
     // Prefer the bigger buildings of the hall (where the rooms are).
     const sorted = [...ids].sort((a, b) => data.buildings[b].area - data.buildings[a].area);
     const pool = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.7)));
-    const b: CampusBuilding = data.buildings[pool[h % pool.length]];
+    const bid = pool[h % pool.length];
+    const b: CampusBuilding = data.buildings[bid];
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (let i = 0; i < b.outer.length; i += 2) {
       minX = Math.min(minX, b.outer[i]); maxX = Math.max(maxX, b.outer[i]);
@@ -87,13 +88,13 @@ export function pinPosition(
       r = Math.imul(r ^ (r >>> 13), 1274126177) >>> 0;
       const x = minX + ((r & 0xffff) / 0xffff) * (maxX - minX);
       const z = minZ + ((r >>> 16) / 0xffff) * (maxZ - minZ);
-      if (pointInRing(x, z, b.outer)) return { x, z, y: heightOf(b) + 9, ground: heightOf(b) };
+      if (pointInRing(x, z, b.outer)) return { x, z, y: heightOf(b) + 9, ground: heightOf(b), bid };
     }
-    return { x: b.center[0], z: b.center[1], y: heightOf(b) + 9, ground: heightOf(b) };
+    return { x: b.center[0], z: b.center[1], y: heightOf(b) + 9, ground: heightOf(b), bid };
   }
   const [x, z] = toScene(s.lat, s.lng);
   const a = ((h % 360) * Math.PI) / 180, d = Math.sqrt(((h >>> 9) % 1000) / 1000) * 60;
-  return { x: x + Math.cos(a) * d, z: z + Math.sin(a) * d, y: 22, ground: 0 };
+  return { x: x + Math.cos(a) * d, z: z + Math.sin(a) * d, y: 22, ground: 0, bid: -1 };
 }
 
 // ---------- pins ----------
@@ -107,11 +108,14 @@ export function StudentPins({
   students,
   halls,
   onPick,
+  hideBid = null,
 }: {
   data: CampusData;
   students: SimStudentDot[];
   halls: Map<string, number[]>;
   onPick?: (checkId: string) => void;
+  /** Students inside the building being viewed as a cutaway get no pin. */
+  hideBid?: number | null;
 }) {
   const solidRef = useRef<THREE.InstancedMesh>(null);
   const ringRef = useRef<THREE.InstancedMesh>(null);
@@ -119,8 +123,8 @@ export function StudentPins({
   const camera = useThree((s) => s.camera);
 
   const placed = useMemo(
-    () => students.map((s) => ({ s, p: pinPosition(s, data, halls) })),
-    [students, data, halls],
+    () => students.map((s) => ({ s, p: pinPosition(s, data, halls) })).filter((x) => x.p.bid !== hideBid || hideBid == null),
+    [students, data, halls, hideBid],
   );
   const solid = useMemo(() => placed.filter((x) => x.s.isReal), [placed]);
   const hollow = useMemo(() => placed.filter((x) => !x.s.isReal), [placed]);
