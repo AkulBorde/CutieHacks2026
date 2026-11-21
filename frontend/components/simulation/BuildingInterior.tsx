@@ -7,12 +7,13 @@
 // (walls, numbers, hallway) with the students in it. The student who needs
 // help stands in their actual room, highlighted.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { STATUS_COLORS, STATUS_LABELS } from "@/lib/status";
 import { type CampusBuilding, heightOf } from "./campusData";
 import { type Cell, type FloorPlan, cellsOn, floorY, realToScene, roomLabel } from "./floorPlan";
+import { pointInRing } from "./buildGeometry";
 import type { CheckStatus } from "./StudentLayer";
 
 export type Occupant = {
@@ -23,6 +24,8 @@ export type Occupant = {
   floor: number;
   cell: Cell;
   isReal: boolean;
+  /** Shown instead of the status in the label (e.g. "Your room"). */
+  caption?: string;
 };
 
 const SLAB = 0.28;
@@ -315,12 +318,15 @@ export default function BuildingInterior({
   floor,
   occupants,
   focusCheckId,
+  onPickCell,
 }: {
   building: CampusBuilding;
   plan: FloorPlan;
   floor: number;
   occupants: Occupant[];
   focusCheckId: string | null;
+  /** Makes rooms on the viewed floor clickable (the /join room picker). */
+  onPickCell?: (cell: Cell, floor: number) => void;
 }) {
   const top = heightOf(building);
   const slab = useMemo(() => slabGeometry(building), [building]);
@@ -339,6 +345,27 @@ export default function BuildingInterior({
         : planTexture(plan, floor, occupants, focusCheckId, hallImg, roomImg),
     [plan, floor, occupants, focusCheckId, real, realImg, hallImg, roomImg],
   );
+
+  // The room under a click on the floor plan, if it's a room a person lives in.
+  const cellAt = (x: number, z: number) =>
+    cells.find((c) => c.kind === "room" && c.label !== "" && pointInRing(x, z, c.corners.flat())) ?? null;
+  const pick = onPickCell
+    ? {
+        onClick: (e: ThreeEvent<MouseEvent>) => {
+          const c = cellAt(e.point.x, e.point.z);
+          if (!c) return;
+          e.stopPropagation();
+          onPickCell(c, floor);
+        },
+        onPointerMove: (e: ThreeEvent<PointerEvent>) => {
+          e.stopPropagation();
+          document.body.style.cursor = cellAt(e.point.x, e.point.z) ? "pointer" : "";
+        },
+        onPointerOut: () => {
+          document.body.style.cursor = "";
+        },
+      }
+    : {};
 
   const planeGeo = useMemo(() => new THREE.PlaneGeometry(W, H).rotateX(-Math.PI / 2), [W, H]);
 
@@ -359,7 +386,7 @@ export default function BuildingInterior({
       <mesh geometry={slab} position-y={y - SLAB} receiveShadow>
         <meshStandardMaterial color="#bdb7ac" roughness={0.9} />
       </mesh>
-      <mesh geometry={planeGeo} position={[center[0], y + 0.03, center[1]]} renderOrder={2}>
+      <mesh geometry={planeGeo} position={[center[0], y + 0.03, center[1]]} renderOrder={2} {...pick}>
         <meshBasicMaterial map={tex} transparent toneMapped={false} />
       </mesh>
       <mesh geometry={partitions} position-y={y}>
@@ -389,7 +416,7 @@ export default function BuildingInterior({
           <div className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs text-white shadow-xl ${focus.status === "urgent" ? "bg-red-900" : focus.status === "needs_help" ? "bg-red-600" : "bg-zinc-900/90"}`}>
             <div className="text-sm font-bold">{focus.name}</div>
             <div>
-              Room {focus.room} · floor {focus.floor} of {plan.floors} · {STATUS_LABELS[focus.status]}
+              Room {focus.room} · floor {focus.floor} of {plan.floors} · {focus.caption ?? STATUS_LABELS[focus.status]}
             </div>
           </div>
         </Html>
