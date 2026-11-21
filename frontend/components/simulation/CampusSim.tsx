@@ -55,7 +55,11 @@ function PostFX({ quality }: { quality: "high" | "low" }) {
   );
 }
 
-export default function CampusSim({ className, quality = "high" }: CampusSimProps) {
+export default function CampusSim({ className, quality: qualityProp }: CampusSimProps) {
+  // ?q=low in the URL turns off ambient occlusion for slower laptops.
+  const [quality] = useState<"high" | "low">(() =>
+    qualityProp ?? (typeof window !== "undefined" && /[?&]q=low/.test(window.location.search) ? "low" : "high"),
+  );
   const [data, setData] = useState<CampusData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
@@ -85,7 +89,7 @@ export default function CampusSim({ className, quality = "high" }: CampusSimProp
     <div className={`relative ${className ?? "h-full w-full"}`}>
       <Canvas
         shadows
-        dpr={[1, 1.75]}
+        dpr={quality === "low" ? 1 : [1, 1.75]}
         camera={{ position: [-330, 300, 420], fov: 40, near: 2, far: 16000 }}
         gl={{ antialias: false, powerPreference: "high-performance", stencil: false }}
         onCreated={({ gl }) => {

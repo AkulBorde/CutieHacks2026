@@ -410,3 +410,78 @@ export function scatterTrees(areas: CampusArea[], treeNodes: number[], buildings
   }
   return out;
 }
+
+// ---------- lane markings ----------
+
+/** Offsets a polyline sideways by `off` metres (positive = left of travel). */
+function offsetLine(line: Ring, off: number): Ring {
+  const n = line.length / 2;
+  const out: Ring = [];
+  for (let i = 0; i < n; i++) {
+    const pi = Math.max(0, i - 1), ni = Math.min(n - 1, i + 1);
+    let tx = line[ni * 2] - line[pi * 2], tz = line[ni * 2 + 1] - line[pi * 2 + 1];
+    const tl = Math.hypot(tx, tz) || 1;
+    tx /= tl; tz /= tl;
+    out.push(line[i * 2] - tz * off, line[i * 2 + 1] + tx * off);
+  }
+  return out;
+}
+
+/** Cuts a polyline into dash pieces: `on` metres painted, `off` metres gap. */
+function dashes(line: Ring, on: number, off: number): Ring[] {
+  const out: Ring[] = [];
+  let cur: Ring = [];
+  let pos = 0;
+  const period = on + off;
+  for (let i = 0; i + 3 < line.length; i += 2) {
+    const x0 = line[i], z0 = line[i + 1], x1 = line[i + 2], z1 = line[i + 3];
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    let s = 0;
+    while (s < len) {
+      const phase = pos % period;
+      const painting = phase < on;
+      const toEdge = (painting ? on - phase : period - phase);
+      const step = Math.min(toEdge, len - s);
+      const ax = x0 + ((x1 - x0) * s) / len, az = z0 + ((z1 - z0) * s) / len;
+      const bx = x0 + ((x1 - x0) * (s + step)) / len, bz = z0 + ((z1 - z0) * (s + step)) / len;
+      if (painting) {
+        if (!cur.length) cur.push(ax, az);
+        cur.push(bx, bz);
+      } else if (cur.length) {
+        out.push(cur);
+        cur = [];
+      }
+      s += step;
+      pos += step;
+    }
+  }
+  if (cur.length >= 4) out.push(cur);
+  return out;
+}
+
+export function buildMarkings(roads: CampusRoad[]) {
+  const gb = new GeoBuilder();
+  const yellow = new THREE.Color("#e8c23a");
+  const white = new THREE.Color("#f2f0ea");
+  const y = 0.14;
+  for (const r of roads) {
+    const L = r.line;
+    if (L.length < 4) continue;
+    const w = ROAD_WIDTH[r.kind];
+    if (r.kind === "primary" || r.kind === "secondary" || r.kind === "trunk") {
+      addRibbon(gb, offsetLine(L, 0.18), 0.14, y, yellow);
+      addRibbon(gb, offsetLine(L, -0.18), 0.14, y, yellow);
+      addRibbon(gb, offsetLine(L, w / 2 - 0.5), 0.14, y, white);
+      addRibbon(gb, offsetLine(L, -(w / 2 - 0.5)), 0.14, y, white);
+      for (const d of dashes(offsetLine(L, w / 4), 3, 9)) addRibbon(gb, d, 0.12, y, white);
+      for (const d of dashes(offsetLine(L, -w / 4), 3, 9)) addRibbon(gb, d, 0.12, y, white);
+    } else if (r.kind === "tertiary") {
+      for (const d of dashes(L, 3, 6)) addRibbon(gb, d, 0.14, y, yellow);
+    } else if (r.kind === "motorway" || r.kind === "trunk_link") {
+      addRibbon(gb, offsetLine(L, w / 2 - 0.6), 0.15, y, white);
+      addRibbon(gb, offsetLine(L, -(w / 2 - 0.6)), 0.15, y, yellow);
+      for (const k of [-1, 1]) for (const d of dashes(offsetLine(L, (k * w) / 6), 3, 9)) addRibbon(gb, d, 0.13, y, white);
+    }
+  }
+  return gb.build();
+}
