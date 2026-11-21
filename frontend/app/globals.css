@@ -24,3 +24,20 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Room numbers on the responder's floor plan (components/RouteMap.tsx). */
+.leaflet-tooltip.room-label {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  font-size: 9px;
+  font-weight: 600;
+  color: #44403c;
+}
+.leaflet-tooltip.room-label::before {
+  display: none;
+}
+.leaflet-tooltip.room-label-target {
+  color: #ffffff;
+}

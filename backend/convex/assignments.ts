@@ -147,6 +147,9 @@ export const byToken = query({
 
     return {
       status: a.status,
+      // The 3D view picks which building of a hall a student is drawn in from
+      // this id; the responder map uses it to pick the same one.
+      checkId: check._id,
       studentName: student.name,
       buildingName: building.name,
       room: student.room,
@@ -154,6 +157,9 @@ export const byToken = query({
       distanceMeters: distanceMeters(responder, building),
       etaMinutes: a.etaMinutes,
       offerExpiresAt: a.offerExpiresAt,
+      // Ends of the walking route the responder sees once they accept.
+      from: { lat: responder.lat, lng: responder.lng },
+      to: { lat: building.lat, lng: building.lng },
     };
   },
 });

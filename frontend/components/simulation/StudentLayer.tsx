@@ -11,7 +11,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { STATUS_COLORS } from "@/lib/status";
-import { type CampusBuilding, type CampusData, heightOf } from "./campusData";
+import { type CampusBuilding, type CampusData, hallBuildingFor, hallIndexOf, heightOf } from "./campusData";
 import { buildSingle, pointInRing } from "./buildGeometry";
 import { toScene } from "./geo";
 
@@ -53,15 +53,7 @@ function hash(s: string) {
 
 /** Index of housing communities -> the 3D buildings that make them up. */
 export function useHallIndex(data: CampusData) {
-  return useMemo(() => {
-    const m = new Map<string, number[]>();
-    data.buildings.forEach((b, i) => {
-      const key = b.housing ?? (b.name || null);
-      if (!key) return;
-      (m.get(key) ?? m.set(key, []).get(key)!).push(i);
-    });
-    return m;
-  }, [data]);
+  return useMemo(() => hallIndexOf(data), [data]);
 }
 
 /** Where a student's pin goes: on top of one of their hall's real buildings. */
@@ -73,10 +65,7 @@ export function pinPosition(
   const ids = s.buildingName ? halls.get(s.buildingName) : undefined;
   const h = hash(s.checkId);
   if (ids?.length) {
-    // Prefer the bigger buildings of the hall (where the rooms are).
-    const sorted = [...ids].sort((a, b) => data.buildings[b].area - data.buildings[a].area);
-    const pool = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.7)));
-    const bid = pool[h % pool.length];
+    const bid = hallBuildingFor(s.checkId, ids, data);
     const b: CampusBuilding = data.buildings[bid];
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (let i = 0; i < b.outer.length; i += 2) {

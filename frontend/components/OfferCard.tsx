@@ -1,10 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCountdown } from "@/lib/useCountdown";
+
+const RouteMap = dynamic(() => import("@/components/RouteMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[60vh] min-h-[320px] w-full animate-pulse rounded-lg bg-zinc-100" />
+  ),
+});
 
 // What api.assignments.byToken returns for a live offer.
 export type Offer = {
   status: "proposed" | "offered" | "accepted" | "expired";
+  checkId: string;
   studentName: string;
   buildingName: string;
   room: string;
@@ -12,6 +21,8 @@ export type Offer = {
   distanceMeters: number;
   etaMinutes: number;
   offerExpiresAt?: number;
+  from: { lat: number; lng: number };
+  to: { lat: number; lng: number };
 };
 
 export default function OfferCard({
@@ -26,9 +37,20 @@ export default function OfferCard({
 
   if (offer.status === "accepted") {
     return (
-      <p className="rounded-lg bg-green-50 p-4 text-lg font-medium text-green-800">
-        You&apos;re confirmed. Go to {offer.buildingName}, room {offer.room}.
-      </p>
+      <div className="flex flex-col gap-3">
+        <p className="rounded-lg bg-green-50 p-4 text-lg font-medium text-green-800">
+          You&apos;re confirmed. Go to {offer.buildingName}, room {offer.room}.
+        </p>
+        <p>{offer.need}</p>
+        <RouteMap
+          from={offer.from}
+          to={offer.to}
+          checkId={offer.checkId}
+          buildingName={offer.buildingName}
+          room={offer.room}
+          label={`${offer.studentName} · ${offer.buildingName} ${offer.room}`}
+        />
+      </div>
     );
   }
 

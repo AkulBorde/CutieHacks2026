@@ -110,6 +110,35 @@ export function hash01(s: string): number {
 }
 
 /**
+ * Which of a hall's buildings a student lives in. We only store the hall's
+ * name, so pick one of its bigger buildings (where the rooms are), stably by
+ * the check id. The 3D pins and the responder map both use this, so they
+ * agree.
+ */
+export function hallBuildingFor(key: string, ids: number[], data: CampusData): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  h >>>= 0;
+  const sorted = [...ids].sort((a, b) => data.buildings[b].area - data.buildings[a].area);
+  const pool = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.7)));
+  return pool[h % pool.length];
+}
+
+/** Housing community (or building name) -> indexes of its buildings. */
+export function hallIndexOf(data: CampusData): Map<string, number[]> {
+  const m = new Map<string, number[]>();
+  data.buildings.forEach((b, i) => {
+    const key = b.housing ?? (b.name || null);
+    if (!key) return;
+    (m.get(key) ?? m.set(key, []).get(key)!).push(i);
+  });
+  return m;
+}
+
+/**
  * Loads the saved campus. If it hasn't been saved yet, downloads it from
  * OpenStreetMap and (in dev) saves it to public/ucr/campus.json for next time.
  */
