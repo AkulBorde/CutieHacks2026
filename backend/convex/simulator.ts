@@ -7,6 +7,7 @@
 //   ctx.scheduler.runAfter(simulatedDelayMs(checkId), internal.simulator.simulateResult, { checkId });
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
+import { proposeFor } from "./assignments";
 import { deriveStatus } from "./lib/status";
 import { simulatedAnswers, simulatedOutcome } from "./lib/simData";
 
@@ -37,7 +38,8 @@ export const simulateResult = internalMutation({
         : "[simulated] No answer after retry.",
       updatedAt: Date.now(),
     });
-    // TODO once backend has assignments.propose: for needs_help and urgent,
-    //   await ctx.scheduler.runAfter(0, internal.assignments.propose, { checkId });
+    // Same as a real call: needs_help and urgent get the nearest free
+    // responder proposed (proposeFor ignores every other status).
+    await proposeFor(ctx, checkId);
   },
 });
