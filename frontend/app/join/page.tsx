@@ -1,6 +1,8 @@
 // Student landing page: what Bear Call is, and where to sign up. Owner: frontend.
 // Ported from the standalone frontend/index.html on the LandingPage branch.
 import Image from "next/image";
+import JoinForm from "@/components/JoinForm";
+import JoinQr from "@/components/JoinQr";
 
 export default function JoinPage() {
   return (
@@ -30,33 +32,14 @@ export default function JoinPage() {
         </section>
 
         <section className="mt-[30px] grid items-center gap-[35px] md:grid-cols-[1fr_1.5fr]">
-          <div className="text-center">
+          {/* On a phone you already scanned it, so the QR only shows on wider screens. */}
+          <div className="hidden text-center md:block">
             <h3 className="mb-3 font-semibold">Scan to connect</h3>
-            <div className="mx-auto grid h-[190px] w-[190px] place-items-center rounded-lg border-2 border-dashed border-slate-300 text-sm text-slate-400">
-              QR code
-            </div>
+            <JoinQr />
             <p className="mt-3">Access Bear Call check-in page.</p>
           </div>
 
-          <form className="flex flex-col gap-3">
-            <label htmlFor="phone" className="font-medium">
-              Your phone number
-            </label>
-            <input
-              type="tel"
-              id="phone"
-              name="phone"
-              autoComplete="tel"
-              placeholder="Enter your phone number"
-              className="w-full rounded-[10px] border border-slate-300 p-4 text-[15px]"
-            />
-            <button
-              type="button"
-              className="cursor-pointer rounded-[10px] bg-[#18334D] p-4 text-base font-bold text-white"
-            >
-              Continue →
-            </button>
-          </form>
+          <JoinForm />
         </section>
       </main>
     </div>

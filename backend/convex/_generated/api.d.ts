@@ -16,11 +16,13 @@ import type * as http from "../http.js";
 import type * as incidents from "../incidents.js";
 import type * as lib_geo from "../lib/geo.js";
 import type * as lib_honesty from "../lib/honesty.js";
+import type * as lib_phone from "../lib/phone.js";
 import type * as lib_simData from "../lib/simData.js";
 import type * as lib_status from "../lib/status.js";
 import type * as seed from "../seed.js";
 import type * as simSeed from "../simSeed.js";
 import type * as simulator from "../simulator.js";
+import type * as students from "../students.js";
 
 import type {
   ApiFromModules,
@@ -37,11 +39,13 @@ declare const fullApi: ApiFromModules<{
   incidents: typeof incidents;
   "lib/geo": typeof lib_geo;
   "lib/honesty": typeof lib_honesty;
+  "lib/phone": typeof lib_phone;
   "lib/simData": typeof lib_simData;
   "lib/status": typeof lib_status;
   seed: typeof seed;
   simSeed: typeof simSeed;
   simulator: typeof simulator;
+  students: typeof students;
 }>;
 
 /**
