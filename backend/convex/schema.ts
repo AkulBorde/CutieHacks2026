@@ -17,7 +17,9 @@ export default defineSchema({
     room: v.string(),
     isReal: v.boolean(), // false = simulated, never called
     accessibilityNotes: v.optional(v.string()),
-  }).index("by_building", ["buildingId"]),
+  })
+    .index("by_building", ["buildingId"])
+    .index("by_phone", ["phone"]),
 
   responders: defineTable({
     name: v.string(),
