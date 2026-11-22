@@ -14,7 +14,7 @@ export type AnsweredStatus = "urgent" | "needs_help" | "safe";
 
 // The statuses that get a responder sent. No answer is one of them: nobody
 // knows how that student is, so someone goes to where they are registered.
-export type DispatchStatus = AnsweredStatus | "no_answer";
+export type DispatchStatus = "urgent" | "needs_help" | "no_answer";
 
 export function needsResponder(status: string): status is DispatchStatus {
   return status === "urgent" || status === "needs_help" || status === "no_answer";

@@ -4,10 +4,12 @@ import { STATUS_COLORS, STATUS_LABELS } from "@/lib/status";
 // One row of api.assignments.queue.
 export type QueueItem = {
   checkId: Id<"checks">;
-  status: "urgent" | "needs_help";
+  // No answer is in the queue too: someone goes to check on them in person.
+  status: "urgent" | "needs_help" | "no_answer";
   studentName: string;
   // Where the responder is sent: where the student said they are on the
-  // call, or their dorm room. No room if they only named a building.
+  // call, or their dorm room (always the dorm room after no answer). No room
+  // if they only named a building.
   buildingName: string;
   room?: string;
   // Their registered room, when they said they are somewhere else.
@@ -58,6 +60,11 @@ export default function HelpQueue({
                   {item.buildingName}
                   {item.room ? `, room ${item.room}` : ""}
                 </p>
+                {item.status === "no_answer" && (
+                  <p className="text-xs text-zinc-400">
+                    Did not pick up. In-person check at their room.
+                  </p>
+                )}
                 {item.dorm && (
                   <p className="text-xs text-zinc-400">
                     Said on the call. Dorm: {item.dorm.buildingName}, room{" "}
