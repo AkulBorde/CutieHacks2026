@@ -107,7 +107,6 @@ function planTexture(
   floor: number,
   occupants: Occupant[],
   focus: string | null,
-  hallImg: HTMLImageElement | null = null,
   roomImg: HTMLImageElement | null = null,
 ) {
   const W = plan.xMax - plan.xMin, H = plan.zMax - plan.zMin;
@@ -138,27 +137,16 @@ function planTexture(
   }
   g.globalCompositeOperation = "source-over";
 
-  // The hall's real ground-floor community map, fitted to this footprint.
-  // Full strength on floor 1; faded on upper floors (stairs, elevators and
-  // wings line up, the lobby and offices are only on the ground floor).
+  // Residence halls: the rooms themselves are laid out from the hall's
+  // community map (see hallPlan.ts), so the floor is drawn from them; the
+  // map's schematic drawing isn't to scale and is no longer pasted under it.
   const hm = plan.hallMap;
-  if (hm && hallImg) {
-    g.save();
-    path(plan.outer);
-    g.clip();
-    g.globalAlpha = floor === 1 ? 0.95 : 0.3;
-    const [a, b, c, d, e, f] = hm.affine;
-    // canvas = ppm * (scene - min); scene = affine(px, py)
-    g.setTransform(ppm * a, ppm * d, ppm * b, ppm * e, ppm * (c - plan.xMin), ppm * (f - plan.zMin));
-    g.drawImage(hallImg, 0, 0);
-    g.restore();
-  }
-  const roomAlpha = hm && hallImg && floor === 1 ? 0.6 : 1;
+  const roomAlpha = 1;
 
   const byCell = new Map<Cell, Occupant>();
   for (const o of occupants) if (o.floor === floor) byCell.set(o.cell, o);
 
-  for (const c of plan.cells) {
+  for (const c of cellsOn(plan, floor)) {
     const occ = byCell.get(c);
     const isFocus = !!occ && occ.checkId === focus;
     g.fillStyle =
@@ -166,7 +154,10 @@ function planTexture(
       occ ? tint(STATUS_COLORS[occ.status]) :
       c.kind === "bath" ? "#b9d4e3" :
       c.kind === "stairs" ? "#e7d27a" :
-      c.kind === "lounge" ? "#d9c9e8" : "#cfae84";
+      c.kind === "lounge" ? "#d9c9e8" :
+      c.kind === "common" ? "#b9dcb0" :
+      c.kind === "service" ? "#cfcac2" :
+      c.kind === "elevator" ? "#6d6a66" : "#cfae84";
     g.beginPath();
     c.corners.forEach(([x, z], i) => {
       if (i) g.lineTo(X(x), Y(z));
@@ -221,15 +212,22 @@ function planTexture(
       }
     }
     const text = c.kind === "room" ? occ?.room ?? roomLabel(plan, c, floor) : c.label;
-    const size = c.kind === "room" ? Math.max(9, Math.min(wPx * 0.27, 22)) : Math.max(8, Math.min(wPx * 0.16, 13));
-    g.font = `${isFocus ? "bold " : c.kind === "room" ? "600 " : ""}${size}px system-ui, sans-serif`;
+    let size = c.kind === "room" ? Math.max(9, Math.min(wPx * 0.27, 22)) : c.kind === "common" ? Math.max(8, Math.min(wPx * 0.12, 18)) : Math.max(8, Math.min(wPx * 0.16, 13));
+    const weight = isFocus ? "bold " : c.kind === "room" || c.kind === "common" ? "600 " : "";
+    g.font = `${weight}${size}px system-ui, sans-serif`;
+    // Shrink long names to fit their room.
+    const fit = (wPx * 0.92) / Math.max(1, g.measureText(text).width);
+    if (fit < 1) {
+      size = Math.max(6, size * fit);
+      g.font = `${weight}${size}px system-ui, sans-serif`;
+    }
     if (isFocus && roomImg) {
       // Room number as a red tag so the furniture stays readable.
       const tw = g.measureText(text).width + 10;
       g.fillStyle = "#ff3b30";
       g.fillRect(-tw / 2, -size * 0.7, tw, size * 1.4);
     }
-    g.fillStyle = isFocus ? "#ffffff" : c.kind === "room" ? "#2b2622" : "#3d3a36";
+    g.fillStyle = isFocus || c.kind === "elevator" ? "#ffffff" : c.kind === "room" ? "#2b2622" : "#3d3a36";
     g.fillText(text, 0, 0);
     g.restore();
   }
@@ -342,7 +340,6 @@ export default function BuildingInterior({
   const edges = useMemo(() => new THREE.EdgesGeometry(shell, 25), [shell]);
   const real = plan.real.get(floor) ?? null;
   const realImg = useImage(real ? real.plan.img : null);
-  const hallImg = useImage(plan.hallMap?.img ?? null);
   const roomImg = useImage(plan.hallMap?.roomPlan?.img ?? null);
   const cells = useMemo(() => cellsOn(plan, floor), [plan, floor]);
   const partitions = useMemo(() => partitionGeometry(cells), [cells]);
@@ -350,8 +347,8 @@ export default function BuildingInterior({
     () =>
       real && realImg
         ? realTexture(plan, floor, realImg, occupants, focusCheckId)
-        : planTexture(plan, floor, occupants, focusCheckId, hallImg, roomImg),
-    [plan, floor, occupants, focusCheckId, real, realImg, hallImg, roomImg],
+        : planTexture(plan, floor, occupants, focusCheckId, roomImg),
+    [plan, floor, occupants, focusCheckId, real, realImg, roomImg],
   );
 
   // The room under a click on the floor plan, if it's a room a person lives in.
@@ -432,7 +429,7 @@ export default function BuildingInterior({
       <Label position={[center[0], top + 3, center[1]]} zIndexRange={[15, 0]}>
         <div className="whitespace-nowrap rounded bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-zinc-700">
           Floor {floor} of {plan.floors} ·{" "}
-          {real ? "real UCR floor map" : plan.hallMap ? (floor === 1 ? "UCR Housing community map + rooms by wing" : "rooms by wing · ground-floor map faded") : "estimated layout"}
+          {real ? "real UCR floor map" : plan.byFloor ? (floor === 1 ? "laid out from the UCR Housing community map · ground floor" : "laid out from the UCR Housing community map") : "estimated layout"}
         </div>
       </Label>
     </group>

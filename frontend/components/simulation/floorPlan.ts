@@ -16,8 +16,10 @@
 import { type CampusBuilding, type CampusData, FLOOR_HEIGHT, heightOf } from "./campusData";
 import { pointInRing, signedArea } from "./buildGeometry";
 import { type HallMap, type RealPlan, PENTLAND_LETTERS, applyAffine, hallMapFor, realPlansFor } from "./realPlans";
+import { HALL_LAYOUTS } from "./hallLayouts";
+import { hallFloorCells } from "./hallPlan";
 
-export type CellKind = "room" | "bath" | "stairs" | "lounge" | "elevator";
+export type CellKind = "room" | "bath" | "stairs" | "lounge" | "elevator" | "common" | "service";
 
 export type Cell = {
   /** Corners in scene x,z: wall-side edge first, then the hallway side. */
@@ -41,6 +43,8 @@ export type FloorPlan = {
   wing: string;
   /** Floors that have a real published floor plan, and the rooms detected on it. */
   real: Map<number, { plan: RealPlan; cells: Cell[] }>;
+  /** Residence halls laid out from their community maps: each floor's rooms. */
+  byFloor?: Map<number, Cell[]>;
   /** The hall's community map (ground floor), fitted to this footprint. */
   hallMap: HallMap | null;
   /** Pentland Hills building letter(s) from the community map, e.g. "K" or "B/C". */
@@ -120,6 +124,8 @@ function overlaps(a: Quad, b: Quad): boolean {
 // ---------- the plan ----------
 
 export function planBuilding(b: CampusBuilding, wingHint = ""): FloorPlan {
+  const layout = HALL_LAYOUTS[b.id];
+  if (layout) return planHall(b, layout, wingHint);
   const prof = (b.housing && PROFILES[b.housing]) || DEFAULT;
   const holes = b.holes.filter((h) => h.length >= 6);
   const rings = [b.outer, ...holes];
@@ -230,6 +236,28 @@ export function planBuilding(b: CampusBuilding, wingHint = ""): FloorPlan {
   return { floors, xMin, xMax, zMin, zMax, outer: b.outer, holes, cells, wing, real, hallMap, letter };
 }
 
+/**
+ * Aberdeen-Inverness, Lothian and Pentland Hills: rooms built from the
+ * community maps on the real footprint, floor by floor (the ground floor has
+ * the common rooms; the floors above are rooms, lounges, stairs, elevators).
+ */
+function planHall(b: CampusBuilding, layout: (typeof HALL_LAYOUTS)[string], wingHint: string): FloorPlan {
+  const holes = b.holes.filter((h) => h.length >= 6);
+  let xMin = Infinity, xMax = -Infinity, zMin = Infinity, zMax = -Infinity;
+  for (let i = 0; i < b.outer.length; i += 2) {
+    xMin = Math.min(xMin, b.outer[i]); xMax = Math.max(xMax, b.outer[i]);
+    zMin = Math.min(zMin, b.outer[i + 1]); zMax = Math.max(zMax, b.outer[i + 1]);
+  }
+  const floors = floorsOf(b);
+  const byFloor = new Map<number, Cell[]>();
+  for (let f = 1; f <= floors; f++) byFloor.set(f, hallFloorCells(b, layout, f));
+  const cells = byFloor.get(Math.min(2, floors)) ?? [];
+  const hallMap = hallMapFor(b.housing, b.id);
+  const letter = b.housing === "Pentland Hills" ? PENTLAND_LETTERS[b.id] ?? null : null;
+  const wing = wingHint || layout.wings[0]?.letter || "";
+  return { floors, xMin, xMax, zMin, zMax, outer: b.outer, holes, cells, wing, real: new Map(), byFloor, hallMap, letter };
+}
+
 /** The pixel -> scene fit: explicit for rotated maps, else wall box onto footprint box. */
 export function realAffine(rp: RealPlan, xMin: number, xMax: number, zMin: number, zMax: number): [number, number, number, number, number, number] {
   if (rp.affine) return rp.affine;
@@ -273,7 +301,7 @@ function realCells(rp: RealPlan, xMin: number, xMax: number, zMin: number, zMax:
 
 /** The cells to show on a floor: the real plan's rooms if there is one. */
 export function cellsOn(plan: FloorPlan, floor: number): Cell[] {
-  return plan.real.get(floor)?.cells ?? plan.cells;
+  return plan.real.get(floor)?.cells ?? plan.byFloor?.get(floor) ?? plan.cells;
 }
 
 /** Room label on a given floor: wing + floor + two-digit number. */
@@ -320,6 +348,12 @@ export function cellForRoom(plan: FloorPlan, room?: string): { cell: Cell; floor
   }
   let rooms = cellsOn(plan, floor).filter((c) => c.kind === "room" && c.label !== "");
   if (!rooms.length) rooms = plan.cells.filter((c) => c.kind === "room");
+  if (!rooms.length) rooms = cellsOn(plan, floor).length ? cellsOn(plan, floor) : plan.cells;
+  if (!rooms.length) {
+    // A building with no rooms at all: stand in its middle.
+    const cx = (plan.xMin + plan.xMax) / 2, cz = (plan.zMin + plan.zMax) / 2;
+    return { cell: { corners: [[cx - 1, cz - 1], [cx + 1, cz - 1], [cx + 1, cz + 1], [cx - 1, cz + 1]], center: [cx, cz], kind: "room", label: "", angle: 0 }, floor };
+  }
   // Stay inside the student's wing (e.g. D210 -> wing D) when the map has it.
   const inWing = p?.wing ? rooms.filter((c) => c.wing === p.wing) : [];
   if (inWing.length) rooms = inWing;
