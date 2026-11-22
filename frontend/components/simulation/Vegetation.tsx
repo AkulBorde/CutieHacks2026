@@ -9,7 +9,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { CampusBuilding, CampusData } from "./campusData";
-import { styleOf } from "./campusData";
+import { nearCampus, styleOf } from "./campusData";
 import { pointInRing, scatterTrees, type TreeSpot } from "./buildGeometry";
 
 // ---------- placement ----------
@@ -118,7 +118,7 @@ export function placeTrees(data: CampusData): TreeSpot[] {
         const a = rand() * Math.PI * 2, d = Math.sqrt(b.area) * 0.6 + 4 + rand() * 4;
         add(b.center[0] + Math.cos(a) * d, b.center[1] + Math.sin(a) * d, rand() < 0.12 ? "palm" : rand() < 0.2 ? "pine" : "oak", 0.65 + rand() * 0.5, 1.5);
       }
-    } else if (st === "campus" || st === "housing") {
+    } else if (st !== "minor") {
       const n = Math.min(14, Math.round(b.area / 450) + 2);
       const R = Math.sqrt(b.area) * 0.75 + 16;
       for (let k = 0; k < n; k++) {
@@ -127,7 +127,8 @@ export function placeTrees(data: CampusData): TreeSpot[] {
       }
     }
   }
-  return out.slice(0, 32000);
+  // Nothing grows outside UCR: the map is blank past the campus edge.
+  return out.filter((t) => nearCampus(t.x, t.z)).slice(0, 32000);
 }
 
 // ---------- models ----------

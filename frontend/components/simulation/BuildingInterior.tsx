@@ -12,7 +12,7 @@ import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { STATUS_COLORS, STATUS_LABELS } from "@/lib/status";
 import { type CampusBuilding, heightOf } from "./campusData";
-import { type Cell, type FloorPlan, cellsOn, floorY, realToScene, roomLabel } from "./floorPlan";
+import { type Cell, type FloorPlan, cellsOn, floorY, realAffine, roomLabel } from "./floorPlan";
 import { pointInRing } from "./buildGeometry";
 import type { CheckStatus } from "./StudentLayer";
 
@@ -271,18 +271,23 @@ function realTexture(plan: FloorPlan, floor: number, img: HTMLImageElement, occu
   g.clip();
   g.fillStyle = "#f4f4f2";
   g.fillRect(0, 0, cv.width, cv.height);
-  const P = realToScene(real.plan, plan.xMin, plan.xMax, plan.zMin, plan.zMax);
-  const [ix0, iy0] = P(0, 0);
-  const [ix1, iy1] = P(real.plan.size[0], real.plan.size[1]);
-  g.drawImage(img, X(ix0), Y(iy0), X(ix1) - X(ix0), Y(iy1) - Y(iy0));
+  // Place the map with its fit (handles rotated maps): canvas = ppm * (scene - min).
+  const [a, b, c, d, e, f] = realAffine(real.plan, plan.xMin, plan.xMax, plan.zMin, plan.zMax);
+  g.setTransform(ppm * a, ppm * d, ppm * b, ppm * e, ppm * (c - plan.xMin), ppm * (f - plan.zMin));
+  g.drawImage(img, 0, 0);
   g.restore();
   // Occupants: tint their room and print their name.
   for (const o of occupants) {
     if (o.floor !== floor) continue;
     const isFocus = o.checkId === focus;
-    const [a, , b] = [o.cell.corners[0], o.cell.corners[1], o.cell.corners[2]];
     g.fillStyle = isFocus ? "rgba(255,59,48,0.85)" : `${STATUS_COLORS[o.status]}aa`;
-    g.fillRect(X(a[0]), Y(a[1]), X(b[0]) - X(a[0]), Y(b[1]) - Y(a[1]));
+    g.beginPath();
+    o.cell.corners.forEach(([x, z], i) => {
+      if (i) g.lineTo(X(x), Y(z));
+      else g.moveTo(X(x), Y(z));
+    });
+    g.closePath();
+    g.fill();
     g.fillStyle = "#fff";
     g.font = `bold ${Math.max(10, ppm * 1.1)}px system-ui, sans-serif`;
     g.textAlign = "center";

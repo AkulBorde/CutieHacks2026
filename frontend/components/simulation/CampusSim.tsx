@@ -21,9 +21,9 @@ import { EffectComposer, N8AO, SMAA, ToneMapping, Vignette, BrightnessContrast, 
 import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import { STATUS_COLORS, STATUS_LABELS } from "@/lib/status";
-import { type CampusData, heightOf, loadCampus } from "./campusData";
+import { CAMPUS_BOUNDS, type CampusData, heightOf, loadCampus } from "./campusData";
 import CampusWorld from "./CampusWorld";
-import Environment, { SUN_DIR } from "./Environment";
+import Environment, { BLANK, SUN_DIR } from "./Environment";
 import { BellTower, LANDMARK_MATCHERS } from "./Landmarks";
 import {
   Responders,
@@ -101,6 +101,27 @@ function CameraRig({ goal, onDone }: { goal: Goal; onDone: () => void }) {
     camera.position.lerp(pos, k);
     controls.update();
     if (controls.target.distanceTo(tgt) < 0.5 && camera.position.distanceTo(pos) < 1) doneRef.current();
+  });
+  return null;
+}
+
+// ---------- keep the view on UCR ----------
+
+/** Furthest the camera can pull back: about the whole campus in view. */
+const MAX_DISTANCE = 3000;
+
+/** The map is only UCR: the camera's focus can't be dragged off campus. */
+function KeepOnCampus() {
+  const controls = useThree((s) => s.controls) as unknown as Controls | null;
+  const camera = useThree((s) => s.camera);
+  useFrame(() => {
+    if (!controls) return;
+    const t = controls.target, b = CAMPUS_BOUNDS;
+    const x = Math.min(b.x1, Math.max(b.x0, t.x)), z = Math.min(b.z1, Math.max(b.z0, t.z));
+    if (x === t.x && z === t.z) return;
+    camera.position.add(new THREE.Vector3(x - t.x, 0, z - t.z));
+    t.set(x, t.y, z);
+    controls.update();
   });
   return null;
 }
@@ -196,9 +217,20 @@ export default function CampusSim(props: CampusSimProps) {
     loadCampus(setStatus).then(
       (d) => {
         setData(d);
-        // ?inspect=Watkins%20Hall opens a building straight away (handy for demos).
-        const name = new URLSearchParams(window.location.search).get("inspect");
+        // ?inspect=Watkins%20Hall opens a building straight away (handy for demos);
+        // ?look=Lothian flies to its outside instead.
+        const params = new URLSearchParams(window.location.search);
+        const name = params.get("inspect");
         const bid = name ? d.buildings.findIndex((b) => b.name === name || b.housing === name) : -1;
+        const look = params.get("look");
+        const lookIds = look ? d.buildings.flatMap((b, i) => (b.name === look || b.housing === look ? [i] : [])) : [];
+        if (lookIds.length) {
+          const bs = lookIds.map((i) => d.buildings[i]);
+          const area = bs.reduce((t, b) => t + b.area, 0);
+          const x = bs.reduce((t, b) => t + b.center[0] * b.area, 0) / area;
+          const z = bs.reduce((t, b) => t + b.center[1] * b.area, 0) / area;
+          setGoal({ x, z, y: 4, dist: Number(params.get("dist")) || Math.max(60, Math.sqrt(area) * 1.3) });
+        }
         if (bid >= 0) {
           const b = d.buildings[bid];
           const realFloors = [...planBuilding(b).real.keys()].sort((x, y) => x - y);
@@ -413,7 +445,7 @@ export default function CampusSim(props: CampusSimProps) {
         }}
         style={{ cursor: hover != null ? "pointer" : "grab" }}
       >
-        <fog attach="fog" args={["#c9d6e2", 1800, 9000]} />
+        <fog attach="fog" args={[BLANK, 3200, 9000]} />
         <Sky sunPosition={sun} turbidity={4.5} rayleigh={0.9} mieCoefficient={0.005} mieDirectionalG={0.82} distance={20000} />
         <Quake startedAt={quakeAt} center={zoneCenter}>
           <Environment data={data} />
@@ -427,7 +459,8 @@ export default function CampusSim(props: CampusSimProps) {
         )}
         {data && <Responders responders={responders} targets={targets} />}
         {data && <HoverLabel data={data} bid={hover} hint={pickMode ? (props.pickable?.includes(data.buildings[hover ?? -1]?.housing ?? "") ? "click to choose" : null) : undefined} />}
-        <MapControls makeDefault target={[180, 0, -180]} maxPolarAngle={Math.PI / 2.15} minDistance={30} maxDistance={4200} enableDamping dampingFactor={0.08} />
+        <MapControls makeDefault target={[180, 0, -180]} maxPolarAngle={Math.PI / 2.15} minDistance={30} maxDistance={MAX_DISTANCE} enableDamping dampingFactor={0.08} />
+        <KeepOnCampus />
         <CameraRig goal={goal} onDone={() => setGoal(null)} />
         <PostFX quality={quality} />
       </Canvas>

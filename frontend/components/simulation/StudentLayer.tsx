@@ -257,17 +257,28 @@ export function ZoneHighlight({ data, indices, active }: { data: CampusData; ind
     }
     merged.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     merged.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
-    return merged;
+    // The outline (corners, eaves, footprint) marks the zone without hiding
+    // what the buildings look like.
+    return { shell: merged, edges: new THREE.EdgesGeometry(merged, 25) };
   }, [data, indices]);
   const mat = useRef<THREE.MeshBasicMaterial>(null);
+  const line = useRef<THREE.LineBasicMaterial>(null);
   useFrame(({ clock }) => {
-    if (mat.current) mat.current.opacity = active ? 0.15 + 0.08 * Math.sin(clock.elapsedTime * 3) : 0.22;
+    const pulse = 0.5 + 0.5 * Math.sin(clock.elapsedTime * 3);
+    if (mat.current) mat.current.opacity = active ? 0.06 + 0.1 * pulse : 0.05;
+    if (line.current) line.current.opacity = active ? 0.55 + 0.45 * pulse : 0.85;
   });
   if (!geo) return null;
+  const color = active ? "#ff3b30" : "#3b82f6";
   return (
-    <mesh geometry={geo} renderOrder={5}>
-      <meshBasicMaterial ref={mat} color={active ? "#ff3b30" : "#3b82f6"} transparent depthWrite={false} toneMapped={false} />
-    </mesh>
+    <group>
+      <mesh geometry={geo.shell} renderOrder={5}>
+        <meshBasicMaterial ref={mat} color={color} transparent depthWrite={false} toneMapped={false} />
+      </mesh>
+      <lineSegments geometry={geo.edges} renderOrder={6}>
+        <lineBasicMaterial ref={line} color={color} transparent depthWrite={false} toneMapped={false} />
+      </lineSegments>
+    </group>
   );
 }
 
