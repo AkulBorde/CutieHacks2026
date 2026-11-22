@@ -3,6 +3,7 @@
 // Dispatcher dashboard. Owner: frontend.
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@rollcall/backend/convex/_generated/api";
 import type { Id } from "@rollcall/backend/convex/_generated/dataModel";
@@ -81,7 +82,19 @@ export default function Dashboard() {
   return (
     <main className="flex flex-1 flex-col gap-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold">Bear Call</h1>
+        <div className="flex items-center gap-2">
+          {/* The icon file has a transparent margin, so it is drawn a little
+              larger than the title's cap height to read as the same size. */}
+          <Image
+            src="/icon.png"
+            alt=""
+            width={48}
+            height={48}
+            priority
+            className="size-12"
+          />
+          <h1 className="text-2xl font-semibold">Bear Call</h1>
+        </div>
 
         {incident ? (
           <div className="flex flex-wrap items-center gap-3">
