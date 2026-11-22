@@ -479,7 +479,7 @@ export default function CampusSim(props: CampusSimProps) {
         {cutaway && inspect && (
           <BuildingInterior building={cutaway.b} plan={cutaway.plan} floor={Math.min(inspect.floor, cutaway.plan.floors)} occupants={cutaway.placed} focusCheckId={inspect.focus} onPickCell={canPickHere ? pickCell : undefined} />
         )}
-        {data && <Responders responders={responders} targets={targets} />}
+        {data && <Responders responders={responders} targets={targets} roads={data.roads} />}
         {data && <HoverLabel data={data} bid={hover} hint={pickMode ? (props.pickable?.includes(data.buildings[hover ?? -1]?.housing ?? "") ? "click to choose" : null) : undefined} />}
         <MapControls makeDefault target={HOME_TARGET} maxPolarAngle={Math.PI / 2.15} minDistance={30} maxDistance={MAX_DISTANCE} enableDamping dampingFactor={0.08} />
         <KeepOnCampus />

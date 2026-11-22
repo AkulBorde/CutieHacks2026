@@ -9,15 +9,16 @@
 // residence hall (coloured by check status, hollow ring if simulated), red
 // pulses and light beams on anyone who needs help, the selected zone, and
 // responders walking to students.
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import Label from "./Label";
 import * as THREE from "three";
 import { STATUS_COLORS } from "@/lib/status";
-import { type CampusBuilding, type CampusData, hallIndexOf, heightOf } from "./campusData";
+import { type CampusBuilding, type CampusData, type CampusRoad, hallIndexOf, heightOf } from "./campusData";
 import { buildSingle, pointInRing } from "./buildGeometry";
 import { hallBuildingFor } from "./floorPlan";
 import { toScene } from "./geo";
+import { type Pt, pointAlong, walkRoute } from "./walkPath";
 
 export type CheckStatus = "pending" | "calling" | "safe" | "needs_help" | "urgent" | "no_answer";
 
@@ -284,57 +285,70 @@ export function ZoneHighlight({ data, indices, active }: { data: CampusData; ind
 
 // ---------- responders ----------
 
-export function Responders({ responders, targets }: { responders: SimResponder[]; targets: Map<string, { x: number; z: number; ground: number }> }) {
+export function Responders({ responders, targets, roads }: { responders: SimResponder[]; targets: Map<string, { x: number; z: number; ground: number }>; roads?: CampusRoad[] }) {
   return (
     <group>
       {responders.map((r) => {
         const t = targets.get(r.toCheckId);
         if (!t) return null;
-        const [fx, fz] = toScene(r.from[0], r.from[1]);
-        const p = Math.min(1, Math.max(0, r.progress));
-        const x = fx + (t.x - fx) * p, z = fz + (t.z - fz) * p;
-        const away = `${Math.max(1, Math.ceil(r.etaMinutes * (1 - p)))} min away`;
-        // An estimated walk never claims the responder has arrived.
-        const where =
-          r.status === "arrived" ? "on scene" :
-          r.status === "offered" ? "offer sent" :
-          !r.estimated ? away :
-          p >= 1 ? "ETA reached (estimate)" : `about ${away} (estimate)`;
-        return (
-          <group key={r.id}>
-            <mesh position={[x, 1.8, z]} castShadow>
-              <capsuleGeometry args={[0.9, 1.8, 4, 10]} />
-              <meshStandardMaterial color="#2563eb" emissive="#3b82f6" emissiveIntensity={0.6} toneMapped={false} />
-            </mesh>
-            <mesh position={[x, 0.3, z]} rotation-x={-Math.PI / 2}>
-              <ringGeometry args={[3, 4, 32]} />
-              <meshBasicMaterial color="#3b82f6" transparent opacity={0.6} toneMapped={false} />
-            </mesh>
-            {r.status !== "arrived" && <WalkLine from={[fx, fz]} to={[t.x, t.z]} progress={p} />}
-            <Label position={[x, 7, z]} zIndexRange={[25, 0]}>
-              <div className="whitespace-nowrap rounded-md bg-blue-700 px-2 py-1 text-xs font-semibold text-white shadow-lg">
-                {r.name} ({r.role}) · {where}
-              </div>
-            </Label>
-          </group>
-        );
+        return <Responder key={r.id} r={r} tx={t.x} tz={t.z} roads={roads} />;
       })}
     </group>
   );
 }
 
-function WalkLine({ from, to, progress }: { from: [number, number]; to: [number, number]; progress: number }) {
-  const geo = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    g.setFromPoints([new THREE.Vector3(from[0], 0.6, from[1]), new THREE.Vector3(to[0], 0.6, to[1])]);
-    return g;
-  }, [from, to]);
-  const mat = useMemo(() => new THREE.LineDashedMaterial({ color: "#60a5fa", dashSize: 4, gapSize: 3, transparent: true, opacity: 0.9 }), []);
+// One responder: the marker, its label, and the route it is walking.
+function Responder({ r, tx, tz, roads }: { r: SimResponder; tx: number; tz: number; roads?: CampusRoad[] }) {
+  const [fx, fz] = toScene(r.from[0], r.from[1]);
+  // The walk follows the campus paths. Worked out once per trip, not on every
+  // tick of the animation.
+  const route = useMemo(() => walkRoute(roads, [fx, fz], [tx, tz]), [roads, fx, fz, tx, tz]);
+  const p = Math.min(1, Math.max(0, r.progress));
+  const [x, z] = pointAlong(route, p);
+  const away = `${Math.max(1, Math.ceil(r.etaMinutes * (1 - p)))} min away`;
+  // An estimated walk never claims the responder has arrived.
+  const where =
+    r.status === "arrived" ? "on scene" :
+    r.status === "offered" ? "offer sent" :
+    !r.estimated ? away :
+    p >= 1 ? "ETA reached (estimate)" : `about ${away} (estimate)`;
+  return (
+    <group>
+      <mesh position={[x, 1.8, z]} castShadow>
+        <capsuleGeometry args={[0.9, 1.8, 4, 10]} />
+        <meshStandardMaterial color="#2563eb" emissive="#3b82f6" emissiveIntensity={0.6} toneMapped={false} />
+      </mesh>
+      <mesh position={[x, 0.3, z]} rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[3, 4, 32]} />
+        <meshBasicMaterial color="#3b82f6" transparent opacity={0.6} toneMapped={false} />
+      </mesh>
+      {r.status !== "arrived" && <WalkLine route={route} />}
+      <Label position={[x, 7, z]} zIndexRange={[25, 0]}>
+        <div className="whitespace-nowrap rounded-md bg-blue-700 px-2 py-1 text-xs font-semibold text-white shadow-lg">
+          {r.name} ({r.role}) · {where}
+        </div>
+      </Label>
+    </group>
+  );
+}
+
+// The dashed line along the whole route, start to student.
+function WalkLine({ route }: { route: Pt[] }) {
   const line = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    geo.setFromPoints(route.map(([x, z]) => new THREE.Vector3(x, 0.6, z)));
+    const mat = new THREE.LineDashedMaterial({ color: "#60a5fa", dashSize: 4, gapSize: 3, transparent: true, opacity: 0.9 });
     const l = new THREE.Line(geo, mat);
     l.computeLineDistances();
     return l;
-  }, [geo, mat]);
-  void progress;
+  }, [route]);
+  // three.js does not free these on its own when the route changes.
+  useEffect(
+    () => () => {
+      line.geometry.dispose();
+      (line.material as THREE.Material).dispose();
+    },
+    [line],
+  );
   return <primitive object={line} />;
 }
