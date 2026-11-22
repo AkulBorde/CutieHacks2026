@@ -6,8 +6,21 @@ import JoinQr from "@/components/JoinQr";
 
 export default function JoinPage() {
   return (
-    <div className="grid flex-1 place-items-center bg-[#90b6db] p-4 text-[#18334D] sm:p-6">
-      <main className="w-full max-w-[860px] rounded-[20px] bg-white p-6 sm:p-10">
+    <div className="relative isolate grid flex-1 place-items-center overflow-hidden bg-[#90b6db] p-4 text-[#18334D] sm:p-6">
+      {/* Campus render behind the card, washed out toward the middle so the card reads clearly. */}
+      <Image
+        src="/campus.webp"
+        alt=""
+        fill
+        priority
+        sizes="100vw"
+        className="-z-20 object-cover"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 bg-[#eaf2fa]/30 bg-[radial-gradient(ellipse_at_center,rgba(234,242,250,0.8)_45%,rgba(234,242,250,0.4)_70%,transparent_95%)]"
+      />
+      <main className="w-full max-w-[860px] rounded-[20px] border border-white/60 bg-white/90 p-6 shadow-xl shadow-[#18334D]/10 backdrop-blur-md sm:p-10">
         <header className="flex items-center gap-4 sm:gap-6">
           <Image
             src="/icon.png"
