@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
@@ -301,6 +301,26 @@ export const approve = mutation({
       return { ok: false as const };
     }
 
+    const check = await ctx.db.get(a.checkId);
+    const student = check && (await ctx.db.get(check.studentId));
+    if (student && !student.isReal) {
+      // A simulated student gets a simulated response: nobody has to open a
+      // link. The responder accepts at once, walks there on the map, and
+      // arrives after the same ETA the map animates, which frees them.
+      await ctx.db.patch(a._id, { status: "accepted", acceptedAt: Date.now() });
+      await ctx.db.patch(responder._id, { available: false });
+      // For a simulated student this only logs the line; no call is placed.
+      await ctx.scheduler.runAfter(0, internal.calls.placeConfirmationCall, {
+        assignmentId: a._id,
+      });
+      await ctx.scheduler.runAfter(
+        a.etaMinutes * 60_000,
+        internal.assignments.arrive,
+        { assignmentId: a._id },
+      );
+      return { ok: true as const, offerToken: a.offerToken };
+    }
+
     await ctx.db.patch(a._id, {
       status: "offered",
       offerExpiresAt: Date.now() + OFFER_WINDOW_MS,
@@ -344,9 +364,51 @@ export const accept = mutation({
   },
 });
 
-// Responder taps Done once they have checked on the student. The student is
-// accounted for, and the responder is free again, from where they now are,
-// and is proposed for whoever is waiting.
+// A responder has reached their student. The student is accounted for, and
+// the responder is free again, from where they now are, and is proposed for
+// whoever is waiting. Returns whether the assignment is now finished.
+async function finish(ctx: MutationCtx, a: Doc<"assignments">) {
+  if (a.status !== "accepted") return false;
+  // A second tap changes nothing.
+  if (a.completedAt !== undefined) return true;
+
+  const check = await ctx.db.get(a.checkId);
+  const incident = check && (await ctx.db.get(check.incidentId));
+  // Ending an incident already frees everyone, and this responder may be
+  // busy in a newer one. A tap on an old link must not look like it worked.
+  if (!check || incident?.status !== "active") return false;
+
+  await ctx.db.patch(a._id, { completedAt: Date.now() });
+
+  const student = await ctx.db.get(check.studentId);
+  const building = student && (await ctx.db.get(student.buildingId));
+  const here = student && building ? locate(check, student, building) : null;
+
+  // A responder is with them, so they leave the help queue and count as
+  // accounted for. A call transcript gets a line saying why, since the
+  // student's own words may still say they are hurt. A check with no
+  // transcript is left without one: the honesty counter counts transcripts
+  // as answered calls. `updatedAt` is left alone so the live feed does not
+  // jump to this student.
+  const responder = await ctx.db.get(a.responderId);
+  const note = `Checked in person by ${responder?.name ?? "a responder"}.`;
+  await ctx.db.patch(check._id, {
+    status: "safe",
+    ...(check.transcript
+      ? { transcript: `${check.transcript}\n${note}` }
+      : {}),
+  });
+
+  await ctx.db.patch(a.responderId, {
+    available: true,
+    // They are standing where the student is, not back at their post.
+    ...(here ? { lat: here.lat, lng: here.lng } : {}),
+  });
+  await proposeForWaiting(ctx, incident._id);
+  return true;
+}
+
+// Responder taps Done once they have checked on the student.
 export const complete = mutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
@@ -354,44 +416,17 @@ export const complete = mutation({
       .query("assignments")
       .withIndex("by_token", (q) => q.eq("offerToken", token))
       .unique();
-    if (!a || a.status !== "accepted") return { ok: false as const };
-    // A second tap changes nothing.
-    if (a.completedAt !== undefined) return { ok: true as const };
+    return { ok: a ? await finish(ctx, a) : false };
+  },
+});
 
-    const check = await ctx.db.get(a.checkId);
-    const incident = check && (await ctx.db.get(check.incidentId));
-    // Ending an incident already frees everyone, and this responder may be
-    // busy in a newer one. A tap on an old link must not look like it worked.
-    if (!check || incident?.status !== "active") return { ok: false as const };
-
-    await ctx.db.patch(a._id, { completedAt: Date.now() });
-
-    const student = await ctx.db.get(check.studentId);
-    const building = student && (await ctx.db.get(student.buildingId));
-    const here = student && building ? locate(check, student, building) : null;
-
-    // A responder is with them, so they leave the help queue and count as
-    // accounted for. A call transcript gets a line saying why, since the
-    // student's own words may still say they are hurt. A check with no
-    // transcript is left without one: the honesty counter counts transcripts
-    // as answered calls. `updatedAt` is left alone so the live feed does not
-    // jump to this student.
-    const responder = await ctx.db.get(a.responderId);
-    const note = `Checked in person by ${responder?.name ?? "a responder"}.`;
-    await ctx.db.patch(check._id, {
-      status: "safe",
-      ...(check.transcript
-        ? { transcript: `${check.transcript}\n${note}` }
-        : {}),
-    });
-
-    await ctx.db.patch(a.responderId, {
-      available: true,
-      // They are standing where the student is, not back at their post.
-      ...(here ? { lat: here.lat, lng: here.lng } : {}),
-    });
-    await proposeForWaiting(ctx, incident._id);
-    return { ok: true as const };
+// The simulated responder sent to a simulated student has had time to walk
+// there (scheduled by `approve`). Same ending as a real responder's Done.
+export const arrive = internalMutation({
+  args: { assignmentId: v.id("assignments") },
+  handler: async (ctx, { assignmentId }) => {
+    const a = await ctx.db.get(assignmentId);
+    if (a) await finish(ctx, a);
   },
 });
 
