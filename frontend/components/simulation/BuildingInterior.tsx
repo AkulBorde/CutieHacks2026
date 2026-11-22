@@ -8,7 +8,7 @@
 // help stands in their actual room, highlighted.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
-import { Html } from "@react-three/drei";
+import Label from "./Label";
 import * as THREE from "three";
 import { STATUS_COLORS, STATUS_LABELS } from "@/lib/status";
 import { type CampusBuilding, heightOf } from "./campusData";
@@ -420,21 +420,21 @@ export default function BuildingInterior({
       ))}
       {focus && focus.floor === floor && <FocusGlow cell={focus.cell} y={y} />}
       {focus && (
-        <Html position={[focus.cell.center[0], y + (focus.floor === floor ? 11 : top + 8), focus.cell.center[1]]} center zIndexRange={[40, 0]} style={{ pointerEvents: "none" }}>
+        <Label position={[focus.cell.center[0], y + (focus.floor === floor ? 11 : top + 8), focus.cell.center[1]]} zIndexRange={[40, 0]}>
           <div className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs text-white shadow-xl ${focus.status === "urgent" ? "bg-red-900" : focus.status === "needs_help" ? "bg-red-600" : "bg-zinc-900/90"}`}>
             <div className="text-sm font-bold">{focus.name}</div>
             <div>
               Room {focus.room} · floor {focus.floor} of {plan.floors} · {focus.caption ?? STATUS_LABELS[focus.status]}
             </div>
           </div>
-        </Html>
+        </Label>
       )}
-      <Html position={[center[0], top + 3, center[1]]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
+      <Label position={[center[0], top + 3, center[1]]} zIndexRange={[15, 0]}>
         <div className="whitespace-nowrap rounded bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-zinc-700">
           Floor {floor} of {plan.floors} ·{" "}
           {real ? "real UCR floor map" : plan.hallMap ? (floor === 1 ? "UCR Housing community map + rooms by wing" : "rooms by wing · ground-floor map faded") : "estimated layout"}
         </div>
-      </Html>
+      </Label>
     </group>
   );
 }

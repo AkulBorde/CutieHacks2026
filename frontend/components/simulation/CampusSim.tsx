@@ -16,13 +16,14 @@
 //    the 3D campus can be shown on its own.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Html, MapControls, Sky } from "@react-three/drei";
+import { MapControls, Sky } from "@react-three/drei";
 import { EffectComposer, N8AO, SMAA, ToneMapping, Vignette, BrightnessContrast, HueSaturation } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import { STATUS_COLORS, STATUS_LABELS } from "@/lib/status";
 import { CAMPUS_BOUNDS, type CampusData, heightOf, loadCampus } from "./campusData";
 import CampusWorld from "./CampusWorld";
+import Label from "./Label";
 import Environment, { BLANK, SUN_DIR } from "./Environment";
 import { BellTower, LANDMARK_MATCHERS } from "./Landmarks";
 import {
@@ -172,12 +173,12 @@ function HoverLabel({ data, bid, hint = "click to add to zone" }: { data: Campus
   const label = b.housing ?? (b.name || null);
   if (!label) return null;
   return (
-    <Html position={[b.center[0], heightOf(b) + 6, b.center[1]]} center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
+    <Label position={[b.center[0], heightOf(b) + 6, b.center[1]]} zIndexRange={[20, 0]}>
       <div className="whitespace-nowrap rounded-md bg-zinc-900/85 px-2 py-1 text-xs font-medium text-white shadow">
         {label}
         {b.housing && hint ? <span className="ml-1 text-zinc-400">· {hint}</span> : null}
       </div>
-    </Html>
+    </Label>
   );
 }
 

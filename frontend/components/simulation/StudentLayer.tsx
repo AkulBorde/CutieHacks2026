@@ -11,7 +11,7 @@
 // responders walking to students.
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Html } from "@react-three/drei";
+import Label from "./Label";
 import * as THREE from "three";
 import { STATUS_COLORS } from "@/lib/status";
 import { type CampusBuilding, type CampusData, hallIndexOf, heightOf } from "./campusData";
@@ -231,13 +231,13 @@ function Distress({ x, z, top, ground, urgent, name, room }: { x: number; z: num
         <cylinderGeometry args={[1.6, 1.6, 180, 12, 1, true]} />
         <meshBasicMaterial color={color} transparent depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
-      <Html position={[0, top + 7, 0]} center zIndexRange={[30, 0]} style={{ pointerEvents: "none" }}>
+      <Label position={[0, top + 7, 0]} zIndexRange={[30, 0]}>
         <div className={`whitespace-nowrap rounded-md px-2 py-1 text-xs font-semibold text-white shadow-lg ${urgent ? "bg-red-900" : "bg-red-600"}`}>
           {urgent ? "URGENT · " : "Needs help · "}
           {name}
           {room ? <span className="font-normal opacity-80"> · {room}</span> : null}
         </div>
-      </Html>
+      </Label>
     </group>
   );
 }
@@ -311,11 +311,11 @@ export function Responders({ responders, targets }: { responders: SimResponder[]
               <meshBasicMaterial color="#3b82f6" transparent opacity={0.6} toneMapped={false} />
             </mesh>
             {r.status !== "arrived" && <WalkLine from={[fx, fz]} to={[t.x, t.z]} progress={p} />}
-            <Html position={[x, 7, z]} center zIndexRange={[25, 0]} style={{ pointerEvents: "none" }}>
+            <Label position={[x, 7, z]} zIndexRange={[25, 0]}>
               <div className="whitespace-nowrap rounded-md bg-blue-700 px-2 py-1 text-xs font-semibold text-white shadow-lg">
                 {r.name} ({r.role}) · {where}
               </div>
-            </Html>
+            </Label>
           </group>
         );
       })}
