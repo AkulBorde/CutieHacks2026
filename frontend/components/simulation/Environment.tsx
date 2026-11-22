@@ -176,11 +176,32 @@ function Sun() {
 /** The plain colour of everything outside UCR (and the fog that meets it). */
 export const BLANK = "#e9e7e1";
 
-/** Past the campus edge the world is one plain surface out to the horizon. */
+/**
+ * Past the campus edge the world is one plain surface out to the horizon.
+ * It has a hole exactly where the painted ground is, so the two never
+ * overlap: stacked flat planes flicker (z-fight) when zoomed far out.
+ */
 function BlankGround() {
+  const geo = useMemo(() => {
+    const R = 20000;
+    // Shape in (x, -z) so that after rotating onto the ground it lines up.
+    const outer = new THREE.Shape([
+      new THREE.Vector2(-R, -R), new THREE.Vector2(R, -R), new THREE.Vector2(R, R), new THREE.Vector2(-R, R),
+    ]);
+    // The hole sits 2 m inside the painted ground's edge (which is painted
+    // BLANK there too), so there's no hairline crack along the seam.
+    const e = 2;
+    outer.holes.push(
+      new THREE.Path([
+        new THREE.Vector2(G.x0 + e, -G.z1 + e), new THREE.Vector2(G.x0 + e, -G.z0 - e), new THREE.Vector2(G.x1 - e, -G.z0 - e), new THREE.Vector2(G.x1 - e, -G.z1 + e),
+      ]),
+    );
+    const g = new THREE.ShapeGeometry(outer);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  }, []);
   return (
-    <mesh rotation-x={-Math.PI / 2} position={[0, -0.25, 0]} receiveShadow>
-      <planeGeometry args={[40000, 40000]} />
+    <mesh geometry={geo} receiveShadow>
       <meshStandardMaterial color={BLANK} roughness={1} />
     </mesh>
   );
