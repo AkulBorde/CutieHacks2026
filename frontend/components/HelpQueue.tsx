@@ -7,6 +7,9 @@ export type QueueItem = {
   // No answer is in the queue too: someone goes to check on them in person.
   status: "urgent" | "needs_help" | "no_answer";
   studentName: string;
+  // False for a simulated student, whose responder is simulated too: no link
+  // to open. Missing from a backend that has not been redeployed yet.
+  isReal?: boolean;
   // Where the responder is sent: where the student said they are on the
   // call, or their dorm room (always the dorm room after no answer). No room
   // if they only named a building.
@@ -55,6 +58,11 @@ export default function HelpQueue({
                   <span className="ml-2 text-xs text-zinc-500">
                     {STATUS_LABELS[item.status]}
                   </span>
+                  {item.isReal === false && (
+                    <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-normal text-zinc-500">
+                      Simulated
+                    </span>
+                  )}
                 </p>
                 <p className="text-zinc-500">
                   {item.buildingName}

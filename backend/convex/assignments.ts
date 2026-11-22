@@ -165,6 +165,9 @@ export const queue = query({
         status: check.status,
         updatedAt: check.updatedAt,
         studentName: student.name,
+        // Simulated students are tagged in the queue, and their responder is
+        // simulated too (see `approve`).
+        isReal: student.isReal,
         // Where the responder is sent.
         buildingName: where.buildingName,
         room: where.room,
@@ -183,8 +186,12 @@ export const queue = query({
                 status: live.status,
                 responderName: responder.name,
                 etaMinutes: live.etaMinutes,
-                // Only once approved: the link the responder opens.
-                offerToken: live.status === "proposed" ? undefined : live.offerToken,
+                // Only once approved, and only for a real student: the link
+                // a real responder opens.
+                offerToken:
+                  live.status === "proposed" || !student.isReal
+                    ? undefined
+                    : live.offerToken,
               }
             : undefined,
       });
