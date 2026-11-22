@@ -10,16 +10,17 @@ import {
 } from "./_generated/server";
 import { locate } from "./lib/campus";
 import { distanceMeters, etaMinutes } from "./lib/geo";
+import { dispatchRank, needsResponder } from "./lib/status";
 
 const OFFER_WINDOW_MS = 2 * 60 * 1000;
 
 // Pick the nearest free responder for a check and write a "proposed"
-// assignment. Does nothing if the check already has a live assignment, so it
-// is safe to call more than once.
+// assignment. Covers students who need help and students who did not answer.
+// Does nothing if the check already has a live assignment, so it is safe to
+// call more than once.
 export async function proposeFor(ctx: MutationCtx, checkId: Id<"checks">) {
   const check = await ctx.db.get(checkId);
-  if (!check) return;
-  if (check.status !== "needs_help" && check.status !== "urgent") return;
+  if (!check || !needsResponder(check.status)) return;
 
   const siblings = await ctx.db
     .query("assignments")
@@ -29,16 +30,27 @@ export async function proposeFor(ctx: MutationCtx, checkId: Id<"checks">) {
   const alreadyTried = new Set(siblings.map((s) => s.responderId));
 
   // A responder proposed for another check is spoken for, even though they
-  // only become unavailable once the dispatcher approves.
+  // only become unavailable once the dispatcher approves. One exception: a
+  // student who asked for help may take a responder who is only proposed for
+  // a no-answer, so no-answers cannot use up everyone first. Whichever of the
+  // two the dispatcher approves second moves on to the next responder (see
+  // `approve`).
   const all = await ctx.db.query("assignments").collect();
-  const proposedElsewhere = new Set(
-    all.filter((a) => a.status === "proposed").map((a) => a.responderId),
-  );
+  const proposedElsewhere = new Set<Id<"responders">>();
+  for (const a of all) {
+    if (a.status !== "proposed") continue;
+    if (check.status !== "no_answer") {
+      const other = await ctx.db.get(a.checkId);
+      if (other?.status === "no_answer") continue;
+    }
+    proposedElsewhere.add(a.responderId);
+  }
 
   const student = await ctx.db.get(check.studentId);
   const building = student && (await ctx.db.get(student.buildingId));
   if (!student || !building) return;
-  // Nearest to where the student is, which is not always their dorm.
+  // Nearest to where the student is, which is not always their dorm. With no
+  // answer there is nothing they said, so this is their registered room.
   const where = locate(check, student, building);
 
   const responders = await ctx.db.query("responders").collect();
@@ -63,12 +75,19 @@ export async function proposeFor(ctx: MutationCtx, checkId: Id<"checks">) {
 }
 
 // What the responder is told the student needs, built from the answers.
-function describeNeed(answers: {
-  injured?: boolean;
-  lifeThreat?: boolean;
-  needsHelpMoving?: boolean;
-  othersNearby?: string;
-} | undefined) {
+function describeNeed(check: {
+  status: string;
+  answers?: {
+    injured?: boolean;
+    lifeThreat?: boolean;
+    needsHelpMoving?: boolean;
+    othersNearby?: string;
+  };
+}) {
+  if (check.status === "no_answer") {
+    return "Did not answer the check-in call. Check on them in person.";
+  }
+  const answers = check.answers;
   const parts: string[] = [];
   if (answers?.lifeThreat) parts.push("Possible life threat reported.");
   if (answers?.injured) parts.push("Injury reported.");
@@ -78,7 +97,8 @@ function describeNeed(answers: {
   return parts.join(" ");
 }
 
-// The dashboard's help queue: urgent first, then longest-waiting first.
+// The dashboard's help queue: urgent first, then students who asked for help,
+// then no-answers. Longest-waiting first within each.
 export const queue = query({
   args: { incidentId: v.id("incidents") },
   handler: async (ctx, { incidentId }) => {
@@ -89,7 +109,7 @@ export const queue = query({
 
     const items = [];
     for (const check of checks) {
-      if (check.status !== "needs_help" && check.status !== "urgent") continue;
+      if (!needsResponder(check.status)) continue;
 
       const student = await ctx.db.get(check.studentId);
       const building = student && (await ctx.db.get(student.buildingId));
@@ -135,7 +155,7 @@ export const queue = query({
 
     return items.sort(
       (a, b) =>
-        Number(b.status === "urgent") - Number(a.status === "urgent") ||
+        dispatchRank(a.status) - dispatchRank(b.status) ||
         a.updatedAt - b.updatedAt,
     );
   },
@@ -155,7 +175,7 @@ export const responders = query({
 
     const rows = [];
     for (const check of checks) {
-      if (check.status !== "needs_help" && check.status !== "urgent") continue;
+      if (!needsResponder(check.status)) continue;
 
       const assignments = await ctx.db
         .query("assignments")
@@ -210,7 +230,7 @@ export const byToken = query({
       buildingName: where.buildingName,
       room: where.room,
       unmatchedLocation: where.unmatched,
-      need: describeNeed(check.answers),
+      need: describeNeed(check),
       distanceMeters: distanceMeters(responder, where),
       etaMinutes: a.etaMinutes,
       offerExpiresAt: a.offerExpiresAt,

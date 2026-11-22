@@ -12,6 +12,19 @@ export type Answers = {
 
 export type AnsweredStatus = "urgent" | "needs_help" | "safe";
 
+// The statuses that get a responder sent. No answer is one of them: nobody
+// knows how that student is, so someone goes to where they are registered.
+export type DispatchStatus = AnsweredStatus | "no_answer";
+
+export function needsResponder(status: string): status is DispatchStatus {
+  return status === "urgent" || status === "needs_help" || status === "no_answer";
+}
+
+// Queue order: urgent, then people who asked for help, then no answers.
+export function dispatchRank(status: string): number {
+  return status === "urgent" ? 0 : status === "needs_help" ? 1 : 2;
+}
+
 export function deriveStatus(answers: Answers): AnsweredStatus {
   if (answers.injured || answers.lifeThreat) return "urgent";
   // Anything short of a clear "I'm safe" sends someone. That includes a call

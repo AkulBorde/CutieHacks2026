@@ -132,6 +132,8 @@ export const markCalling = internalMutation({
       attempts: check.attempts + 1,
       updatedAt: Date.now(),
     });
+    // Nobody was reached, so send someone to their room.
+    if (failed) await proposeFor(ctx, checkId);
   },
 });
 
@@ -173,14 +175,15 @@ export const finishCall = internalMutation({
     // covers duplicates of a no-answer event, since callId is cleared below.
     if (!check || check.callId !== callId) return;
 
-    // One call per student, no redial. Voicemail or a missed call is flagged
-    // for an in-person check.
+    // One call per student, no redial. After voicemail or a missed call a
+    // responder is proposed to check on them in person at their room.
     if (noAnswer) {
       await ctx.db.patch(checkId, {
         status: "no_answer",
         callId: undefined,
         updatedAt: Date.now(),
       });
+      await proposeFor(ctx, checkId);
       return;
     }
 
