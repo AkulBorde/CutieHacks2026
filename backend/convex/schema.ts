@@ -90,6 +90,8 @@ export default defineSchema({
     offerToken: v.string(), // unguessable, goes in the responder's link
     offerExpiresAt: v.optional(v.number()),
     acceptedAt: v.optional(v.number()),
+    // Set when the responder says they are done. They are free again then.
+    completedAt: v.optional(v.number()),
     confirmationCallId: v.optional(v.string()),
   })
     .index("by_check", ["checkId"])
