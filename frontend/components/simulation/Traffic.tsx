@@ -2,13 +2,11 @@
 
 // Owner: simulation
 //
-// Cars: parked along every parking aisle and in every lot, and live traffic
-// driving the real streets around campus.
+// Cars: parked along every parking aisle and in every lot.
 import { useLayoutEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import type { CampusData, Ring } from "./campusData";
+import type { CampusData } from "./campusData";
 import { pointInRing, signedArea } from "./buildGeometry";
 
 const PAINT = ["#f2f2f0", "#f2f2f0", "#1d1f22", "#1d1f22", "#9ea3a8", "#9ea3a8", "#6c7176", "#8e1b1b", "#1f3d6b", "#2e5f8a", "#c9c2b2", "#3d4a3a", "#b5651d"];
@@ -132,88 +130,11 @@ function ParkedCars({ data, geo }: { data: CampusData; geo: THREE.BufferGeometry
   return <instancedMesh ref={ref} args={[geo, mat, cars.length]} castShadow receiveShadow frustumCulled={false} />;
 }
 
-// ---------- moving traffic ----------
-
-type Lane = { pts: Ring; cum: number[]; len: number };
-type Mover = { lane: number; s: number; speed: number; dir: 1 | -1; color: string };
-
-const DRIVEN = new Set(["primary", "secondary", "tertiary", "residential", "unclassified", "trunk", "motorway"]);
-const LANE_OFF: Record<string, number> = { motorway: 5.5, trunk: 4, primary: 3.6, secondary: 3.2, tertiary: 2.4, residential: 2, unclassified: 2 };
-
-function MovingTraffic({ data, geo, count = 260 }: { data: CampusData; geo: THREE.BufferGeometry; count?: number }) {
-  const ref = useRef<THREE.InstancedMesh>(null);
-  const { lanes, movers, offs } = useMemo(() => {
-    const lanes: Lane[] = [];
-    const offs: number[] = [];
-    for (const r of data.roads) {
-      if (!DRIVEN.has(r.kind) || r.line.length < 4) continue;
-      const cum = [0];
-      for (let i = 2; i < r.line.length; i += 2) cum.push(cum[cum.length - 1] + Math.hypot(r.line[i] - r.line[i - 2], r.line[i + 1] - r.line[i - 1]));
-      const len = cum[cum.length - 1];
-      if (len < 40) continue;
-      lanes.push({ pts: r.line, cum, len });
-      offs.push(LANE_OFF[r.kind] ?? 2);
-    }
-    const rand = rng(7);
-    const total = lanes.reduce((a, l) => a + l.len, 0);
-    const movers: Mover[] = [];
-    for (let k = 0; k < count && lanes.length; k++) {
-      let pick = rand() * total, li = 0;
-      while (pick > lanes[li].len && li < lanes.length - 1) { pick -= lanes[li].len; li++; }
-      movers.push({ lane: li, s: rand() * lanes[li].len, speed: 8 + rand() * 7, dir: rand() < 0.5 ? 1 : -1, color: PAINT[Math.floor(rand() * PAINT.length)] });
-    }
-    return { lanes, movers, offs };
-  }, [data, count]);
-
-  const mat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.4 }), []);
-  const o = useMemo(() => new THREE.Object3D(), []);
-
-  useLayoutEffect(() => {
-    const m = ref.current;
-    if (!m) return;
-    const c = new THREE.Color();
-    movers.forEach((mv, i) => m.setColorAt(i, c.set(mv.color)));
-    if (m.instanceColor) m.instanceColor.needsUpdate = true;
-  }, [movers]);
-
-  useFrame((_, dt) => {
-    const m = ref.current;
-    if (!m) return;
-    const step = Math.min(dt, 0.1);
-    movers.forEach((mv, i) => {
-      const L = lanes[mv.lane];
-      mv.s += mv.speed * step * mv.dir;
-      if (mv.s > L.len) { mv.s = L.len; mv.dir = -1; }
-      if (mv.s < 0) { mv.s = 0; mv.dir = 1; }
-      // Find the segment for distance s.
-      let seg = 0;
-      while (seg < L.cum.length - 2 && L.cum[seg + 1] < mv.s) seg++;
-      const t = (mv.s - L.cum[seg]) / Math.max(0.001, L.cum[seg + 1] - L.cum[seg]);
-      const x0 = L.pts[seg * 2], z0 = L.pts[seg * 2 + 1], x1 = L.pts[seg * 2 + 2], z1 = L.pts[seg * 2 + 3];
-      const dx = (x1 - x0) * mv.dir, dz = (z1 - z0) * mv.dir;
-      const len = Math.hypot(dx, dz) || 1;
-      // Drive on the right.
-      const off = offs[mv.lane];
-      const x = x0 + (x1 - x0) * t + (-dz / len) * -off;
-      const z = z0 + (z1 - z0) * t + (dx / len) * -off;
-      o.position.set(x, 0.12, z);
-      o.rotation.set(0, Math.atan2(-dz, dx), 0);
-      o.updateMatrix();
-      m.setMatrixAt(i, o.matrix);
-    });
-    m.instanceMatrix.needsUpdate = true;
-  });
-
-  if (!movers.length) return null;
-  return <instancedMesh ref={ref} args={[geo, mat, movers.length]} castShadow frustumCulled={false} />;
-}
-
 export default function Traffic({ data }: { data: CampusData }) {
   const geo = useMemo(() => carGeometry(), []);
   return (
     <group>
       <ParkedCars data={data} geo={geo} />
-      <MovingTraffic data={data} geo={geo} />
     </group>
   );
 }
