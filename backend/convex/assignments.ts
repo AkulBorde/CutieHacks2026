@@ -14,6 +14,13 @@ import { dispatchRank, needsResponder } from "./lib/status";
 
 const OFFER_WINDOW_MS = 2 * 60 * 1000;
 
+// An assignment that still covers its student: not run out, and the responder
+// has not finished. A finished one is history, so if the student is flagged
+// again later they get a new responder.
+function isLive(a: { status: string; completedAt?: number }) {
+  return a.status !== "expired" && a.completedAt === undefined;
+}
+
 // Pick the nearest free responder for a check and write a "proposed"
 // assignment. Covers students who need help and students who did not answer.
 // Does nothing if the check already has a live assignment, so it is safe to
@@ -26,8 +33,11 @@ export async function proposeFor(ctx: MutationCtx, checkId: Id<"checks">) {
     .query("assignments")
     .withIndex("by_check", (q) => q.eq("checkId", checkId))
     .collect();
-  if (siblings.some((s) => s.status !== "expired")) return false;
-  const alreadyTried = new Set(siblings.map((s) => s.responderId));
+  if (siblings.some(isLive)) return false;
+  // Responders who let an offer for this student run out are not asked again.
+  const alreadyTried = new Set(
+    siblings.filter((s) => s.status === "expired").map((s) => s.responderId),
+  );
 
   // A responder proposed for another check is spoken for, even though they
   // only become unavailable once the dispatcher approves. One exception: a
@@ -83,9 +93,7 @@ async function proposeForWaiting(ctx: MutationCtx, incidentId: Id<"incidents">) 
   if (incident?.status !== "active") return;
 
   const all = await ctx.db.query("assignments").collect();
-  const covered = new Set(
-    all.filter((a) => a.status !== "expired").map((a) => a.checkId),
-  );
+  const covered = new Set(all.filter(isLive).map((a) => a.checkId));
   const checks = await ctx.db
     .query("checks")
     .withIndex("by_incident", (q) => q.eq("incidentId", incidentId))
@@ -126,8 +134,8 @@ function describeNeed(check: {
 }
 
 // The dashboard's help queue: urgent first, then students who asked for help,
-// then no-answers. Longest-waiting first within each. Students a responder
-// has finished with stay listed, at the bottom.
+// then no-answers. Longest-waiting first within each. A student a responder
+// has checked on is marked safe by `complete`, so they are no longer here.
 export const queue = query({
   args: { incidentId: v.id("incidents") },
   handler: async (ctx, { incidentId }) => {
@@ -148,7 +156,7 @@ export const queue = query({
         .query("assignments")
         .withIndex("by_check", (q) => q.eq("checkId", check._id))
         .collect();
-      const live = assignments.find((a) => a.status !== "expired");
+      const live = assignments.find(isLive);
       const responder = live && (await ctx.db.get(live.responderId));
 
       const where = locate(check, student, building);
@@ -172,10 +180,7 @@ export const queue = query({
           live && responder
             ? {
                 id: live._id,
-                status:
-                  live.completedAt !== undefined
-                    ? ("completed" as const)
-                    : live.status,
+                status: live.status,
                 responderName: responder.name,
                 etaMinutes: live.etaMinutes,
                 // Only once approved: the link the responder opens.
@@ -187,8 +192,6 @@ export const queue = query({
 
     return items.sort(
       (a, b) =>
-        Number(a.assignment?.status === "completed") -
-          Number(b.assignment?.status === "completed") ||
         dispatchRank(a.status) - dispatchRank(b.status) ||
         a.updatedAt - b.updatedAt,
     );
@@ -326,7 +329,8 @@ export const accept = mutation({
       .query("assignments")
       .withIndex("by_check", (q) => q.eq("checkId", a.checkId))
       .collect();
-    const taken = siblings.some((s) => s.status === "accepted");
+    // Someone has accepted and is still on it.
+    const taken = siblings.some((s) => s.status === "accepted" && isLive(s));
     const open = a.status === "offered" && (a.offerExpiresAt ?? 0) > Date.now();
     if (taken || !open) {
       return { ok: false as const, reason: "taken_or_expired" as const };
@@ -340,8 +344,9 @@ export const accept = mutation({
   },
 });
 
-// Responder taps Done once they have checked on the student. They are free
-// again, from where they now are, and are proposed for whoever is waiting.
+// Responder taps Done once they have checked on the student. The student is
+// accounted for, and the responder is free again, from where they now are,
+// and is proposed for whoever is waiting.
 export const complete = mutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
@@ -364,6 +369,22 @@ export const complete = mutation({
     const student = await ctx.db.get(check.studentId);
     const building = student && (await ctx.db.get(student.buildingId));
     const here = student && building ? locate(check, student, building) : null;
+
+    // A responder is with them, so they leave the help queue and count as
+    // accounted for. A call transcript gets a line saying why, since the
+    // student's own words may still say they are hurt. A check with no
+    // transcript is left without one: the honesty counter counts transcripts
+    // as answered calls. `updatedAt` is left alone so the live feed does not
+    // jump to this student.
+    const responder = await ctx.db.get(a.responderId);
+    const note = `Checked in person by ${responder?.name ?? "a responder"}.`;
+    await ctx.db.patch(check._id, {
+      status: "safe",
+      ...(check.transcript
+        ? { transcript: `${check.transcript}\n${note}` }
+        : {}),
+    });
+
     await ctx.db.patch(a.responderId, {
       available: true,
       // They are standing where the student is, not back at their post.
