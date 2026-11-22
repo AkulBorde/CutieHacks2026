@@ -16,6 +16,9 @@ export type Offer = {
   // The responder has said they are done. Missing from a backend that has
   // not been redeployed yet.
   completed?: boolean;
+  // The incident this offer belongs to is over. Also missing from an old
+  // backend.
+  incidentEnded?: boolean;
   checkId: string;
   studentName: string;
   // Where the student said they are, or their dorm room. No room if they
@@ -56,6 +59,15 @@ export default function OfferCard({
       we know. This is their dorm room, so they may not be there.
     </p>
   );
+
+  if (offer.incidentEnded) {
+    return (
+      <p className="rounded-lg bg-zinc-100 p-4 text-zinc-700">
+        This incident has ended, so this link is no longer in use. If a new
+        roll call is running, open your link from that one.
+      </p>
+    );
+  }
 
   if (offer.status === "accepted" && offer.completed) {
     return (

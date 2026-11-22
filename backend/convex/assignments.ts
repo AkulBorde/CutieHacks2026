@@ -256,9 +256,13 @@ export const byToken = query({
     const building = student && (await ctx.db.get(student.buildingId));
     if (!check || !responder || !student || !building) return null;
     const where = locate(check, student, building);
+    const incident = await ctx.db.get(check.incidentId);
 
     return {
       status: a.status,
+      // A link from an incident that has ended must not look live: the same
+      // student can be in a newer incident under a different link.
+      incidentEnded: incident?.status !== "active",
       // The responder has said they are done with this student.
       completed: a.completedAt !== undefined,
       // The 3D view picks which building of a hall a student is drawn in from
@@ -349,13 +353,13 @@ export const complete = mutation({
     // A second tap changes nothing.
     if (a.completedAt !== undefined) return { ok: true as const };
 
-    await ctx.db.patch(a._id, { completedAt: Date.now() });
-
     const check = await ctx.db.get(a.checkId);
     const incident = check && (await ctx.db.get(check.incidentId));
-    // Ending an incident already frees everyone. After that this responder
-    // may be busy in a newer incident, so leave them as they are.
-    if (!check || incident?.status !== "active") return { ok: true as const };
+    // Ending an incident already frees everyone, and this responder may be
+    // busy in a newer one. A tap on an old link must not look like it worked.
+    if (!check || incident?.status !== "active") return { ok: false as const };
+
+    await ctx.db.patch(a._id, { completedAt: Date.now() });
 
     const student = await ctx.db.get(check.studentId);
     const building = student && (await ctx.db.get(student.buildingId));
