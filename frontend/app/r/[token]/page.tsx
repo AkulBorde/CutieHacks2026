@@ -13,12 +13,27 @@ export default function ResponderPage() {
   // undefined = loading, null = no live offer for this token.
   const offer = useQuery(api.assignments.byToken, { token });
   const accept = useMutation(api.assignments.accept);
+  const complete = useMutation(api.assignments.complete);
   const [lost, setLost] = useState(false);
+  const [doneError, setDoneError] = useState(false);
 
   async function handleAccept() {
     const result = await accept({ token });
     // The server decides who wins. If it says no, believe it.
     if (!result.ok) setLost(true);
+  }
+
+  // Frees this responder for the next student. The page updates on its own
+  // once the server has it, so only a failure needs handling here. That
+  // includes a backend that has not been redeployed with this mutation yet.
+  async function handleDone() {
+    setDoneError(false);
+    try {
+      const result = await complete({ token });
+      if (!result.ok) setDoneError(true);
+    } catch {
+      setDoneError(true);
+    }
   }
 
   return (
@@ -37,7 +52,12 @@ export default function ResponderPage() {
         </p>
       )}
       {offer && !(lost && offer.status !== "accepted") && (
-        <OfferCard offer={offer} onAccept={handleAccept} />
+        <OfferCard
+          offer={offer}
+          onAccept={handleAccept}
+          onDone={handleDone}
+          doneError={doneError}
+        />
       )}
     </main>
   );

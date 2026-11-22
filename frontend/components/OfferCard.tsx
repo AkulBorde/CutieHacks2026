@@ -13,6 +13,9 @@ const RouteMap = dynamic(() => import("@/components/RouteMap"), {
 // What api.assignments.byToken returns for a live offer.
 export type Offer = {
   status: "proposed" | "offered" | "accepted" | "expired";
+  // The responder has said they are done. Missing from a backend that has
+  // not been redeployed yet.
+  completed?: boolean;
   checkId: string;
   studentName: string;
   // Where the student said they are, or their dorm room. No room if they
@@ -33,9 +36,14 @@ export type Offer = {
 export default function OfferCard({
   offer,
   onAccept,
+  onDone,
+  doneError,
 }: {
   offer: Offer;
   onAccept: () => void;
+  onDone: () => void;
+  // Set when marking done failed, so the responder knows to try again.
+  doneError: boolean;
 }) {
   const secondsLeft = useCountdown(offer.offerExpiresAt);
   const expired = offer.status === "expired" || secondsLeft === 0;
@@ -49,6 +57,14 @@ export default function OfferCard({
     </p>
   );
 
+  if (offer.status === "accepted" && offer.completed) {
+    return (
+      <p className="rounded-lg bg-zinc-100 p-4 text-lg font-medium text-zinc-800">
+        Marked done at {place}. You&apos;re free for the next request.
+      </p>
+    );
+  }
+
   if (offer.status === "accepted") {
     return (
       <div className="flex flex-col gap-3">
@@ -57,6 +73,18 @@ export default function OfferCard({
         </p>
         {unmatched}
         <p>{offer.need}</p>
+        {/* Above the map, which fills most of the screen on a phone. */}
+        <button
+          onClick={onDone}
+          className="rounded-lg bg-zinc-900 py-4 text-lg font-semibold text-white"
+        >
+          Done, I&apos;ve checked on them
+        </button>
+        {doneError && (
+          <p className="text-sm text-red-600">
+            Could not mark this done. Try again.
+          </p>
+        )}
         <RouteMap
           from={offer.from}
           to={offer.to}
