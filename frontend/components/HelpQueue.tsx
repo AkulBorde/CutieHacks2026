@@ -100,7 +100,10 @@ export default function HelpQueue({
                   <span className="uppercase text-zinc-500">
                     {item.assignment.status}
                   </span>
-                  {item.assignment.status === "offered" &&
+                  {/* Kept after they accept, so the page with the Done
+                      button can be reopened from here. */}
+                  {(item.assignment.status === "offered" ||
+                    item.assignment.status === "accepted") &&
                     item.assignment.offerToken && (
                       <a
                         href={`/r/${item.assignment.offerToken}`}
