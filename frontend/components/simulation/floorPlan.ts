@@ -230,29 +230,42 @@ export function planBuilding(b: CampusBuilding, wingHint = ""): FloorPlan {
   return { floors, xMin, xMax, zMin, zMax, outer: b.outer, holes, cells, wing, real, hallMap, letter };
 }
 
-/** Map pixel -> scene: the plan's wall box onto the footprint's bounding box. */
-export function realToScene(rp: RealPlan, xMin: number, xMax: number, zMin: number, zMax: number) {
+/** The pixel -> scene fit: explicit for rotated maps, else wall box onto footprint box. */
+export function realAffine(rp: RealPlan, xMin: number, xMax: number, zMin: number, zMax: number): [number, number, number, number, number, number] {
+  if (rp.affine) return rp.affine;
   const [x0, y0, x1, y1] = rp.bbox;
   const sx = (xMax - xMin) / (x1 - x0), sz = (zMax - zMin) / (y1 - y0);
-  return (px: number, py: number): [number, number] => [xMin + (px - x0) * sx, zMin + (py - y0) * sz];
+  return [sx, 0, xMin - x0 * sx, 0, sz, zMin - y0 * sz];
+}
+
+/** Map pixel -> scene for a real plan on this footprint. */
+export function realToScene(rp: RealPlan, xMin: number, xMax: number, zMin: number, zMax: number) {
+  const m = realAffine(rp, xMin, xMax, zMin, zMax);
+  return (px: number, py: number): [number, number] => applyAffine(m, px, py);
 }
 
 function realCells(rp: RealPlan, xMin: number, xMax: number, zMin: number, zMax: number): Cell[] {
   const P = realToScene(rp, xMin, xMax, zMin, zMax);
   const out: Cell[] = [];
   let n = 0;
-  for (const [x0, y0, x1, y1, kind, label] of rp.rooms) {
-    const a = P(x0, y0), b = P(x1, y1);
-    const w = b[0] - a[0], d = b[1] - a[1];
+  for (const [x0, y0, x1, y1, kind, label, tilt] of rp.rooms) {
+    // Corners in map pixels (turned by the room's tilt), then all four into
+    // the scene, so turned maps and tilted rooms stay right.
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    const t = ((tilt ?? 0) * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+    const turn = (px: number, py: number) => P(mx + (px - mx) * c - (py - my) * s, my + (px - mx) * s + (py - my) * c);
+    const corners: [number, number][] = [turn(x0, y0), turn(x1, y0), turn(x1, y1), turn(x0, y1)];
+    const w = Math.hypot(corners[1][0] - corners[0][0], corners[1][1] - corners[0][1]);
+    const d = Math.hypot(corners[3][0] - corners[0][0], corners[3][1] - corners[0][1]);
     if (w < 1 || d < 1) continue;
     // Small rooms are closets and offices too tight to be "a room" for placing people.
     const k: CellKind = kind === "e" ? "elevator" : "room";
     out.push({
-      corners: [[a[0], a[1]], [b[0], a[1]], [b[0], b[1]], [a[0], b[1]]],
-      center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2],
+      corners,
+      center: [(corners[0][0] + corners[2][0]) / 2, (corners[0][1] + corners[2][1]) / 2],
       kind: k,
       label: kind === "c" ? label : k === "room" ? (w * d >= 12 ? String(10 + n++).padStart(2, "0") : "") : label,
-      angle: 0,
+      angle: Math.atan2(corners[1][1] - corners[0][1], corners[1][0] - corners[0][0]),
     });
   }
   return out;
