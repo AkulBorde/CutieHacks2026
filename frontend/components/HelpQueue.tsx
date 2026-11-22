@@ -20,8 +20,7 @@ export type QueueItem = {
   // Missing until a responder has been proposed for this check.
   assignment?: {
     id: Id<"assignments">;
-    // "completed" once the responder says they are done with this student.
-    status: "proposed" | "offered" | "accepted" | "expired" | "completed";
+    status: "proposed" | "offered" | "accepted" | "expired";
     responderName: string;
     etaMinutes: number;
     // Present once the dispatcher has approved: the responder's link.
@@ -79,11 +78,9 @@ export default function HelpQueue({
                   </p>
                 )}
                 <p className="text-zinc-500">
-                  {!item.assignment
-                    ? "Looking for a responder..."
-                    : item.assignment.status === "completed"
-                      ? `Checked by ${item.assignment.responderName}`
-                      : `${item.assignment.responderName}, about ${item.assignment.etaMinutes} min`}
+                  {item.assignment
+                    ? `${item.assignment.responderName}, about ${item.assignment.etaMinutes} min`
+                    : "Looking for a responder..."}
                 </p>
               </div>
 
