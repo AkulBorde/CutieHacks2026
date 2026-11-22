@@ -4,6 +4,7 @@
 // (or its button), then their room on the floor plan, then confirms.
 // three.js needs `window`, so load this with next/dynamic and ssr: false.
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import CampusSim from "@/components/simulation/CampusSim";
 import type { PickedRoom } from "@/components/JoinForm";
 
@@ -30,7 +31,9 @@ export default function RoomPicker({
   const names = useMemo(() => (buildings ?? []).map((b) => b.name).sort((a, b) => a.localeCompare(b)), [buildings]);
   const [quality] = useState<"high" | "low">(() => (window.innerWidth < 768 ? "low" : "high"));
 
-  return (
+  // Portal to <body>: the /join card uses backdrop-blur, which would otherwise
+  // trap this fixed overlay inside the card instead of covering the screen.
+  return createPortal(
     <div className="fixed inset-0 z-50 bg-zinc-900" role="dialog" aria-label="Pick your room">
       <CampusSim
         className="h-full w-full"
@@ -102,6 +105,7 @@ export default function RoomPicker({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
