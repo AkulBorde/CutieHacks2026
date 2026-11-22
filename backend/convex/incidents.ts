@@ -4,6 +4,11 @@ import { mutation, query } from "./_generated/server";
 import { proposeFor } from "./assignments";
 import { simulatedDelayMs } from "./lib/simData";
 
+// How many simulated students per hall join a roll call. Enough to fill in the
+// map, few enough that the real students are easy to find among them. The
+// rest of a hall's simulated students sit the incident out.
+const MAX_SIMULATED_PER_HALL = 5;
+
 // The incident the dashboard is showing: the newest active one, or null.
 export const current = query({
   args: {},
@@ -40,10 +45,16 @@ export const start = mutation({
     });
 
     for (const buildingId of buildingIds) {
-      const students = await ctx.db
+      const inHall = await ctx.db
         .query("students")
         .withIndex("by_building", (q) => q.eq("buildingId", buildingId))
         .collect();
+      // Every real student, then the first few simulated ones. The index
+      // returns them oldest first, so it is the same few each time.
+      const students = [
+        ...inHall.filter((s) => s.isReal),
+        ...inHall.filter((s) => !s.isReal).slice(0, MAX_SIMULATED_PER_HALL),
+      ];
 
       for (const student of students) {
         const canCall = student.isReal && student.phone !== undefined;
