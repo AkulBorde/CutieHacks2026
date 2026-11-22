@@ -14,6 +14,9 @@ type ResponderRow = {
   lng: number;
   status: "offered" | "accepted";
   etaMinutes: number;
+  // How long the walk takes on the map. Shorter than the ETA for a simulated
+  // responder. Missing from a backend that has not been redeployed yet.
+  walkMs?: number;
   acceptedAt?: number;
 };
 
@@ -67,7 +70,7 @@ export function useWalkingResponders(
       (rows ?? []).map((r) => {
         const walked =
           r.status === "accepted" && r.acceptedAt && now !== null
-            ? (now - r.acceptedAt) / (r.etaMinutes * 60_000)
+            ? (now - r.acceptedAt) / (r.walkMs ?? r.etaMinutes * 60_000)
             : 0;
         return {
           id: r.assignmentId,

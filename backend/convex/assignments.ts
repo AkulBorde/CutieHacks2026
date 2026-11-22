@@ -14,6 +14,17 @@ import { dispatchRank, needsResponder } from "./lib/status";
 
 const OFFER_WINDOW_MS = 2 * 60 * 1000;
 
+// A simulated responder covers the ground this many times faster than the
+// walking ETA, so a demo does not wait minutes for each made-up walk. A real
+// responder is a person walking, so their estimate stays at walking pace.
+const SIMULATED_WALK_SPEEDUP = 6;
+
+// How long the map takes to move a responder from their post to the student.
+function walkMs(etaMinutes: number, studentIsReal: boolean) {
+  const ms = etaMinutes * 60_000;
+  return studentIsReal ? ms : ms / SIMULATED_WALK_SPEEDUP;
+}
+
 // An assignment that still covers its student: not run out, and the responder
 // has not finished. A finished one is history, so if the student is flagged
 // again later they get a new responder.
@@ -208,7 +219,7 @@ export const queue = query({
 // The responders the dashboard's map draws: everyone with an offer out or
 // accepted in this incident, until they say they are done. No phone reports a position, so `lat`/`lng` is
 // where the responder started and the map estimates the walk from
-// `acceptedAt` and `etaMinutes`.
+// `acceptedAt` and `walkMs`.
 export const responders = query({
   args: { incidentId: v.id("incidents") },
   handler: async (ctx, { incidentId }) => {
@@ -232,6 +243,7 @@ export const responders = query({
       );
       const responder = live && (await ctx.db.get(live.responderId));
       if (!live || !responder) continue;
+      const student = await ctx.db.get(check.studentId);
 
       rows.push({
         assignmentId: live._id,
@@ -242,6 +254,7 @@ export const responders = query({
         lng: responder.lng,
         status: live.status as "offered" | "accepted",
         etaMinutes: live.etaMinutes,
+        walkMs: walkMs(live.etaMinutes, student?.isReal ?? true),
         acceptedAt: live.acceptedAt,
       });
     }
@@ -313,7 +326,7 @@ export const approve = mutation({
     if (student && !student.isReal) {
       // A simulated student gets a simulated response: nobody has to open a
       // link. The responder accepts at once, walks there on the map, and
-      // arrives after the same ETA the map animates, which frees them.
+      // arrives when the map's walk ends, which frees them.
       await ctx.db.patch(a._id, { status: "accepted", acceptedAt: Date.now() });
       await ctx.db.patch(responder._id, { available: false });
       // For a simulated student this only logs the line; no call is placed.
@@ -321,7 +334,7 @@ export const approve = mutation({
         assignmentId: a._id,
       });
       await ctx.scheduler.runAfter(
-        a.etaMinutes * 60_000,
+        walkMs(a.etaMinutes, false),
         internal.assignments.arrive,
         { assignmentId: a._id },
       );
