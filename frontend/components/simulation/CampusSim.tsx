@@ -571,7 +571,7 @@ function DemoPanel({
               <option value="air_quality">Air quality</option>
             </select>
             <button disabled={!zone.length} onClick={() => demo.start(zone, kind)} className="rounded-md bg-red-600 px-3 py-2 font-semibold hover:bg-red-500 disabled:bg-zinc-700">
-              Start Roll Call
+              Start Bear Call
             </button>
           </div>
         </>
