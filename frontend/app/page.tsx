@@ -75,7 +75,7 @@ export default function Dashboard() {
       await startIncident({ type: incidentType, buildingIds: selectedIds });
       setSelectedIds([]);
     } catch {
-      setError("Could not start the roll call. Is one already running?");
+      setError("Could not start the bear call. Is one already running?");
     }
   }
 
@@ -137,7 +137,7 @@ export default function Dashboard() {
               disabled={selectedIds.length === 0 || incident === undefined}
               className="whitespace-nowrap rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
             >
-              Start Roll Call
+              Start Bear Call
             </button>
           </div>
         )}

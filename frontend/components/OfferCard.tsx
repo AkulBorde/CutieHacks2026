@@ -64,7 +64,7 @@ export default function OfferCard({
     return (
       <p className="rounded-lg bg-zinc-100 p-4 text-zinc-700">
         This incident has ended, so this link is no longer in use. If a new
-        roll call is running, open your link from that one.
+        bear call is running, open your link from that one.
       </p>
     );
   }
