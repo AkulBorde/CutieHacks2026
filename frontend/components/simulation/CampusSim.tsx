@@ -64,7 +64,13 @@ export type CampusSimProps = {
 
 // ---------- camera: smooth fly-to, interrupted by the user ----------
 
-type Goal = { x: number; z: number; dist: number; y?: number; steep?: boolean } | null;
+/** Where the camera flies: a target to look at, from `dist` metres away (or from exactly `pos`). */
+type Goal = { x: number; z: number; dist: number; y?: number; steep?: boolean; pos?: [number, number, number] } | null;
+
+/** The view the map opens on; Escape flies back here. */
+const HOME_POS: [number, number, number] = [-330, 300, 420];
+const HOME_TARGET: [number, number, number] = [180, 0, -180];
+const HOME_GOAL: Goal = { x: HOME_TARGET[0], y: HOME_TARGET[1], z: HOME_TARGET[2], dist: 0, pos: HOME_POS };
 type Controls = {
   target: THREE.Vector3;
   update: () => void;
@@ -94,7 +100,9 @@ function CameraRig({ goal, onDone }: { goal: Goal; onDone: () => void }) {
     const ty = g.y ?? 0;
     const tgt = new THREE.Vector3(g.x, ty, g.z);
     // Look from the south-west at `dist` metres; steeper when looking into a floor.
-    const pos = g.steep
+    const pos = g.pos
+      ? new THREE.Vector3(...g.pos)
+      : g.steep
       ? new THREE.Vector3(g.x - g.dist * 0.16, ty + g.dist * 1.0, g.z + g.dist * 0.24)
       : new THREE.Vector3(g.x - g.dist * 0.55, ty + g.dist * 0.7, g.z + g.dist * 0.6);
     controls.target.lerp(tgt, k);
@@ -395,9 +403,22 @@ export default function CampusSim(props: CampusSimProps) {
     setInspect((i) => (i ? { ...i, focus: "you" } : i));
   };
 
+  // Escape (or the panel's Exit) closes any building and flies back to the
+  // opening view; in pick mode that's the halls you can choose from.
+  const homeGoal: Goal = pickMode && zoneCenter ? { x: zoneCenter[0], z: zoneCenter[1], dist: 420 } : HOME_GOAL;
+  const homeRef = useRef(homeGoal);
+  useEffect(() => {
+    homeRef.current = homeGoal;
+  });
+  const goHome = () => {
+    setInspect(null);
+    setGoal(homeRef.current);
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setInspect(null);
+      if (e.key !== "Escape") return;
+      setInspect(null);
+      setGoal(homeRef.current);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -438,7 +459,7 @@ export default function CampusSim(props: CampusSimProps) {
       <Canvas
         shadows
         dpr={quality === "low" ? 1 : [1, 1.75]}
-        camera={{ position: [-330, 300, 420], fov: 40, near: 2, far: 16000 }}
+        camera={{ position: HOME_POS, fov: 40, near: 2, far: 16000 }}
         gl={{ antialias: false, powerPreference: "high-performance", stencil: false }}
         onCreated={({ gl }) => {
           gl.shadowMap.type = THREE.PCFShadowMap;
@@ -459,7 +480,7 @@ export default function CampusSim(props: CampusSimProps) {
         )}
         {data && <Responders responders={responders} targets={targets} />}
         {data && <HoverLabel data={data} bid={hover} hint={pickMode ? (props.pickable?.includes(data.buildings[hover ?? -1]?.housing ?? "") ? "click to choose" : null) : undefined} />}
-        <MapControls makeDefault target={[180, 0, -180]} maxPolarAngle={Math.PI / 2.15} minDistance={30} maxDistance={MAX_DISTANCE} enableDamping dampingFactor={0.08} />
+        <MapControls makeDefault target={HOME_TARGET} maxPolarAngle={Math.PI / 2.15} minDistance={30} maxDistance={MAX_DISTANCE} enableDamping dampingFactor={0.08} />
         <KeepOnCampus />
         <CameraRig goal={goal} onDone={() => setGoal(null)} />
         <PostFX quality={quality} />
@@ -501,7 +522,7 @@ export default function CampusSim(props: CampusSimProps) {
             setInspect((i) => (i ? { ...i, floor: o.floor, focus: id } : i));
             setGoal({ x: o.cell.center[0], z: o.cell.center[1], y: (o.floor - 1) * 3.4, dist: 48, steep: true });
           }}
-          onClose={() => setInspect(null)}
+          onClose={goHome}
           emptyText={canPickHere ? "Tap your room on the floor plan. Use the arrows to change floors." : undefined}
         />
       )}
