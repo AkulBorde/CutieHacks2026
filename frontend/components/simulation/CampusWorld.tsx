@@ -10,13 +10,11 @@
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import type { ThreeEvent } from "@react-three/fiber";
-import type { CampusData, Style } from "./campusData";
+import { type CampusData, type Style, STYLES, isHallStyle } from "./campusData";
 import { buildAreas, buildBuildings, buildMarkings, buildRoads } from "./buildGeometry";
 import Traffic from "./Traffic";
 import Vegetation from "./Vegetation";
-import { facadeTexture, noiseTexture } from "./textures";
-
-const STYLES: Style[] = ["campus", "housing", "house", "minor"];
+import { facadeTexture, hallFacadeTexture, noiseTexture, seamTexture } from "./textures";
 
 export type CampusWorldProps = {
   data: CampusData;
@@ -71,7 +69,7 @@ export default function CampusWorld({ data, hide, xray = null, onHover, onPick, 
           withHide(
             new THREE.MeshStandardMaterial({
               vertexColors: true,
-              map: facadeTexture(s),
+              map: isHallStyle(s) ? hallFacadeTexture(s) : facadeTexture(s),
               roughness: 0.82,
               metalness: 0.02,
             }),
@@ -83,6 +81,11 @@ export default function CampusWorld({ data, hide, xray = null, onHover, onPick, 
   );
   const roofMat = useMemo(
     () => withHide(new THREE.MeshStandardMaterial({ vertexColors: true, map: noiseTexture(3, 40), roughness: 0.95 }), uHide),
+    [uHide],
+  );
+  // Standing-seam metal for the halls with pitched roofs (Pentland, Lothian).
+  const metalRoofMat = useMemo(
+    () => withHide(new THREE.MeshStandardMaterial({ vertexColors: true, map: seamTexture(), roughness: 0.6, metalness: 0.1 }), uHide),
     [uHide],
   );
   const groundMat = useMemo(
@@ -175,7 +178,7 @@ export default function CampusWorld({ data, hide, xray = null, onHover, onPick, 
       {STYLES.map((s) => (
         <group key={s}>
           <mesh geometry={g.walls[s]} material={wallMats[s]} customDepthMaterial={depthMat} castShadow receiveShadow {...pointer} />
-          <mesh geometry={g.roofs[s]} material={roofMat} customDepthMaterial={depthMat} castShadow receiveShadow {...pointer} />
+          <mesh geometry={g.roofs[s]} material={s === "pentland" || s === "lothian" ? metalRoofMat : roofMat} customDepthMaterial={depthMat} castShadow receiveShadow {...pointer} />
         </group>
       ))}
       <Vegetation data={data} />

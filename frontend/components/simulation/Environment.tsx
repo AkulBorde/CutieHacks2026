@@ -2,13 +2,13 @@
 
 // Owner: simulation
 //
-// Everything around the buildings: the painted ground (dry Riverside grass,
-// irrigated campus lawns, yard lawns), the Box Springs Mountains to the east
-// with UCR's "C", and the sun.
+// Everything around the buildings: the painted campus ground (dry Riverside
+// grass, irrigated lawns), a plain blank surface past the campus edge (the
+// map is only UCR), and the sun.
 import { useMemo } from "react";
 import * as THREE from "three";
 import type { CampusData } from "./campusData";
-import { styleOf } from "./campusData";
+import { CAMPUS_BOUNDS, CAMPUS_BUFFER, CAMPUS_RINGS, styleOf } from "./campusData";
 
 // ---------- deterministic value noise ----------
 
@@ -32,83 +32,11 @@ export function fbm(x: number, y: number, oct = 5) {
   }
   return s;
 }
-const smooth = (a: number, b: number, x: number) => {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-};
-
-// ---------- terrain: flat campus, Box Springs Mountains to the east ----------
-
-/** Height of the land in metres. Zero across campus and the neighbourhoods. */
-export function terrainHeight(x: number, z: number) {
-  const east = smooth(1720, 3300, x + (fbm(z * 0.0012, 3.1) - 0.5) * 500);
-  const ridge = fbm(x * 0.0009 + 11, z * 0.0009, 6);
-  const crags = Math.abs(fbm(x * 0.004, z * 0.004 + 5, 4) - 0.5) * 2;
-  let h = east * (120 + 330 * ridge + 60 * crags);
-  // Rolling hills to the south (Sycamore Canyon / Canyon Crest).
-  const south = smooth(1700, 3200, z) * (1 - smooth(-200, 600, -x));
-  h += south * (40 + 120 * fbm(x * 0.0015, z * 0.0015 + 9));
-  return h;
-}
-
-// The big white "C" on Box Springs Mountain, facing campus.
-const C_POS = { x: 2230, z: -760 };
-
-function Terrain() {
-  const geo = useMemo(() => {
-    const size = 14000, seg = 260;
-    const g = new THREE.PlaneGeometry(size, size, seg, seg);
-    g.rotateX(-Math.PI / 2);
-    g.translate(2200, 0, 0);
-    const pos = g.getAttribute("position") as THREE.BufferAttribute;
-    const colors = new Float32Array(pos.count * 3);
-    const lowland = new THREE.Color("#b9ad80");
-    const chaparral = new THREE.Color("#7f7651");
-    const scrubDark = new THREE.Color("#5f5a3d");
-    const rock = new THREE.Color("#a9977a");
-    const c = new THREE.Color();
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i), z = pos.getZ(i);
-      const h = terrainHeight(x, z);
-      pos.setY(i, h - 0.6);
-      const n = fbm(x * 0.01, z * 0.01, 3);
-      const t = Math.min(1, h / 90);
-      c.copy(lowland).lerp(n > 0.55 ? scrubDark : chaparral, t);
-      if (h > 260 && n > 0.6) c.lerp(rock, 0.6);
-      c.multiplyScalar(0.92 + n * 0.16);
-      colors.set([c.r, c.g, c.b], i * 3);
-    }
-    g.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    g.computeVertexNormals();
-    return g;
-  }, []);
-  return (
-    <mesh geometry={geo} receiveShadow castShadow>
-      <meshStandardMaterial vertexColors roughness={1} />
-    </mesh>
-  );
-}
-
-function TheC() {
-  const y = terrainHeight(C_POS.x, C_POS.z);
-  // Face west toward campus, tilted back to lie on the slope.
-  const slope = Math.atan2(terrainHeight(C_POS.x + 30, C_POS.z) - terrainHeight(C_POS.x - 30, C_POS.z), 60);
-  return (
-    <group position={[C_POS.x, y + 2, C_POS.z]} rotation={[0, -Math.PI / 2, 0]}>
-      <group rotation-x={-(Math.PI / 2 - slope)}>
-        <mesh rotation-z={Math.PI * 0.2} castShadow>
-          <torusGeometry args={[34, 7, 6, 40, Math.PI * 1.6]} />
-          <meshStandardMaterial color="#f4f1ea" roughness={0.7} />
-        </mesh>
-      </group>
-    </group>
-  );
-}
-
 // ---------- painted ground ----------
 
-// The flat ground covers this rectangle (scene metres).
-const G = { x0: -2700, x1: 1760, z0: -2500, z1: 2000 };
+// The painted ground covers the campus (scene metres); outside the campus
+// outline it is painted BLANK to match the plain surface around it.
+const G = { x0: CAMPUS_BOUNDS.x0 - 40, x1: CAMPUS_BOUNDS.x1 + 40, z0: CAMPUS_BOUNDS.z0 - 40, z1: CAMPUS_BOUNDS.z1 + 40 };
 
 function paintGround(data: CampusData): THREE.CanvasTexture {
   const W = 4096;
@@ -152,7 +80,7 @@ function paintGround(data: CampusData): THREE.CanvasTexture {
   for (const b of data.buildings) {
     const s = styleOf(b);
     const [x, z] = b.center;
-    if (s === "campus" || s === "housing") {
+    if (s !== "house" && s !== "minor") {
       const r = Math.sqrt(b.area) * 0.9 + 34;
       blob(x, z, r, "rgba(104,140,66,A)", 0.85);
     } else if (s === "house") {
@@ -177,6 +105,27 @@ function paintGround(data: CampusData): THREE.CanvasTexture {
     g.fillStyle = v < 0.5 ? "rgba(70,90,40,0.10)" : "rgba(230,220,170,0.08)";
     g.fillRect(Math.random() * W, Math.random() * W, 2, 2);
   }
+
+  // Blank out everything past the campus outline (plus the buffer).
+  const mask = document.createElement("canvas");
+  mask.width = mask.height = W;
+  const m = mask.getContext("2d")!;
+  m.fillStyle = BLANK;
+  m.fillRect(0, 0, W, W);
+  m.globalCompositeOperation = "destination-out";
+  m.lineJoin = m.lineCap = "round";
+  m.lineWidth = CAMPUS_BUFFER * 2 * sx;
+  for (const r of CAMPUS_RINGS) {
+    m.beginPath();
+    for (let i = 0; i < r.length; i += 2) {
+      if (i === 0) m.moveTo(X(r[i]), Z(r[i + 1]));
+      else m.lineTo(X(r[i]), Z(r[i + 1]));
+    }
+    m.closePath();
+    m.fill();
+    m.stroke();
+  }
+  g.drawImage(mask, 0, 0);
 
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -224,12 +173,24 @@ function Sun() {
   );
 }
 
+/** The plain colour of everything outside UCR (and the fog that meets it). */
+export const BLANK = "#e9e7e1";
+
+/** Past the campus edge the world is one plain surface out to the horizon. */
+function BlankGround() {
+  return (
+    <mesh rotation-x={-Math.PI / 2} position={[0, -0.25, 0]} receiveShadow>
+      <planeGeometry args={[40000, 40000]} />
+      <meshStandardMaterial color={BLANK} roughness={1} />
+    </mesh>
+  );
+}
+
 export default function Environment({ data }: { data: CampusData | null }) {
   return (
     <>
       <Sun />
-      <Terrain />
-      <TheC />
+      <BlankGround />
       {data && <PaintedGround data={data} />}
     </>
   );

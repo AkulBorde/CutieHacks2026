@@ -10,10 +10,13 @@ import {
   type CampusRoad,
   type Ring,
   type Style,
+  STYLES,
   hash01,
   heightOf,
+  isHallStyle,
   styleOf,
 } from "./campusData";
+import { HALL_STOREY, HALL_TILE_H } from "./textures";
 
 // ---------- small helpers ----------
 
@@ -89,13 +92,23 @@ const WALLS: Record<Style, string[]> = {
   housing: ["#eadcc2", "#e4cfae", "#d9bf98", "#f0e6d4", "#d7b08a"],
   house: ["#efe4cf", "#e9d8b8", "#f3eee4", "#e6c9a8", "#dcd2bd", "#f1dcc0", "#cfc4ae"],
   minor: ["#b9b3a8", "#a8a39a", "#c4bdb0"],
+  // The residence halls carry their real colours in their textures.
+  ai: ["#ffffff"],
+  lothian: ["#ffffff"],
+  pentland: ["#ffffff"],
 };
 const ROOFS: Record<Style, string[]> = {
   campus: ["#b3aea4", "#c8c4bb", "#9f9a91", "#d6d2c9"],
   housing: ["#b4673f", "#a85d39", "#bf7651", "#9c5634"],
   house: ["#b0603b", "#9d5434", "#7a6a5a", "#8c7b69", "#c0714a"],
   minor: ["#8f8b84", "#9e9a92"],
+  ai: ["#cdc5b4"], // pale, nearly flat roofs
+  lothian: ["#b9b2a6"], // flat roofs on the 4-storey wings
+  pentland: ["#3f8b86"], // teal standing-seam metal
 };
+// Lothian's residential restaurant has the rust-red standing-seam roof.
+const LOTHIAN_METAL_ROOF = new Set(["w488206039"]);
+const LOTHIAN_RED = "#c95c3f";
 
 function pick(list: string[], seed: string, salt: number): THREE.Color {
   const i = Math.floor(hash01(seed + salt) * list.length) % list.length;
@@ -109,7 +122,12 @@ export type BuildingGeometries = {
   roofs: Record<Style, THREE.BufferGeometry>;
 };
 
-function addWalls(gb: GeoBuilder, ring: Ring, isHole: boolean, base: number, top: number, c: THREE.Color, id: number) {
+/**
+ * Outer walls. With `storeys`, v is metres within a 4-storey facade texture
+ * (ground floor first, parapet last), so a shorter wall still gets the ground
+ * floor at the bottom and the parapet at the top.
+ */
+function addWalls(gb: GeoBuilder, ring: Ring, isHole: boolean, base: number, top: number, c: THREE.Color, id: number, storeys = false) {
   const n = ring.length / 2;
   const ccw = signedArea(ring) > 0;
   // Outward from the building: right of travel for a CCW outer ring, left for
@@ -132,14 +150,25 @@ function addWalls(gb: GeoBuilder, ring: Ring, isHole: boolean, base: number, top
     a.set(dx, 0, dz);
     b.set(dx, top - base, dz);
     cr.crossVectors(a, b);
-    const quad: [number, number, number, number, number][] = [
-      [x0, base, z0, u0, base], [x1, base, z1, u1, base], [x1, top, z1, u1, top], [x0, top, z0, u0, top],
-    ];
     const order = cr.dot(nrm) >= 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
-    for (const k of order) {
-      const q = quad[k];
-      gb.vert(q[0], q[1], q[2], nrm, q[3], q[4], c, id);
+    const band = (y0: number, y1: number, v0: number, v1: number) => {
+      const quad: [number, number, number, number, number][] = [
+        [x0, y0, z0, u0, v0], [x1, y0, z1, u1, v0], [x1, y1, z1, u1, v1], [x0, y1, z0, u0, v1],
+      ];
+      for (const k of order) {
+        const q = quad[k];
+        gb.vert(q[0], q[1], q[2], nrm, q[3], q[4], c, id);
+      }
+    };
+    if (!storeys) {
+      band(base, top, base, top);
+      continue;
     }
+    const floors = Math.max(1, Math.min(4, Math.floor((top - base - 0.4) / HALL_STOREY)));
+    const body = base + floors * HALL_STOREY;
+    band(base, body, 0, floors * HALL_STOREY);
+    const bodyTop = 4 * HALL_STOREY;
+    if (top > body) band(body, top, bodyTop, Math.min(HALL_TILE_H, bodyTop + (top - body)));
   }
 }
 
@@ -183,8 +212,111 @@ function addHipRoof(gb: GeoBuilder, ring: Ring, y: number, rise: number, c: THRE
   }
 }
 
+/** Inset (d > 0) or outset (d < 0) a ring by moving every edge d metres inwards. */
+function insetRing(ring: Ring, d: number): Ring | null {
+  const n = ring.length / 2;
+  const ccw = signedArea(ring) > 0;
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const h = (i + n - 1) % n, j = (i + 1) % n;
+    const px = ring[h * 2], pz = ring[h * 2 + 1], cx = ring[i * 2], cz = ring[i * 2 + 1], nx = ring[j * 2], nz = ring[j * 2 + 1];
+    // Inward normals of the two edges at this corner.
+    const e1x = cx - px, e1z = cz - pz, e2x = nx - cx, e2z = nz - cz;
+    const l1 = Math.hypot(e1x, e1z) || 1, l2 = Math.hypot(e2x, e2z) || 1;
+    const s = ccw ? 1 : -1;
+    const n1x = (-e1z / l1) * s, n1z = (e1x / l1) * s, n2x = (-e2z / l2) * s, n2z = (e2x / l2) * s;
+    // Miter: the corner moves along the bisector so both edges move by d.
+    const bx = n1x + n2x, bz = n1z + n2z;
+    const dot = 1 + (n1x * n2x + n1z * n2z);
+    if (dot < 0.15) return null; // hairpin corner
+    out.push(cx + (bx * d) / dot, cz + (bz * d) / dot);
+  }
+  return out;
+}
+
+function segsCross(a: number[], b: number[], c: number[], d: number[]) {
+  const o = (p: number[], q: number[], r: number[]) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+}
+
+/** True if the ring is simple (no edge crosses another). */
+function isSimple(r: Ring): boolean {
+  const n = r.length / 2;
+  const P = (i: number) => [r[(i % n) * 2], r[(i % n) * 2 + 1]];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;
+      if (segsCross(P(i), P(i + 1), P(j), P(j + 1))) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * A hipped metal roof that follows any footprint: slopes rise from an eave
+ * ring (overhanging the walls) to the footprint inset by about half a wing's
+ * width, closed by a ridge cap. Seam texture runs down each slope.
+ * Returns false when the footprint is too awkward (then use a flat roof).
+ */
+function addSeamRoof(gb: GeoBuilder, ring: Ring, y: number, rise: number, overhang: number, c: THREE.Color, id: number): boolean {
+  const n = ring.length / 2;
+  if (n < 3) return false;
+  let peri = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    peri += Math.hypot(ring[j * 2] - ring[i * 2], ring[j * 2 + 1] - ring[i * 2 + 1]);
+  }
+  const area = Math.abs(signedArea(ring));
+  // For a w x l rectangle, area / perimeter * 2 is a bit under half of w.
+  let d = Math.min(9, (area / peri) * 1.5);
+  let inner: Ring | null = null;
+  for (let k = 0; k < 8 && d > 1; k++, d *= 0.8) {
+    const r = insetRing(ring, d);
+    if (r && isSimple(r) && signedArea(r) * signedArea(ring) > 0 && Math.abs(signedArea(r)) < area) {
+      let inside = true;
+      for (let i = 0; i < r.length / 2 && inside; i++) inside = pointInRing(r[i * 2], r[i * 2 + 1], ring);
+      if (inside) {
+        inner = r;
+        break;
+      }
+    }
+  }
+  const eave = insetRing(ring, -overhang);
+  if (!inner || !eave || !isSimple(eave)) return false;
+  // One pitch from eave to ridge, passing through the wall top.
+  const yR = y + rise;
+  const yE = y - (rise * overhang) / d;
+  const slope = Math.hypot(d + overhang, yR - yE);
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), nr = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const p0 = [eave[i * 2], yE, eave[i * 2 + 1]], p1 = [eave[j * 2], yE, eave[j * 2 + 1]];
+    const q0 = [inner[i * 2], yR, inner[i * 2 + 1]], q1 = [inner[j * 2], yR, inner[j * 2 + 1]];
+    const len = Math.hypot(p1[0] - p0[0], p1[2] - p0[2]);
+    if (len < 0.05) continue;
+    // u along the eave, v up the slope; inner corners get u by projection.
+    const ex = (p1[0] - p0[0]) / len, ez = (p1[2] - p0[2]) / len;
+    const uq0 = (q0[0] - p0[0]) * ex + (q0[2] - p0[2]) * ez, uq1 = (q1[0] - p0[0]) * ex + (q1[2] - p0[2]) * ez;
+    a.set(p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]);
+    b.set(q0[0] - p0[0], q0[1] - p0[1], q0[2] - p0[2]);
+    nr.crossVectors(a, b);
+    const flip = nr.y < 0;
+    if (flip) nr.negate();
+    nr.normalize();
+    const V: [number[], number, number][] = [[p0, 0, 0], [p1, len, 0], [q1, uq1, slope], [q0, uq0, slope]];
+    const order = flip ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3];
+    for (const k of order) {
+      const [p, u, v] = V[k];
+      gb.vert(p[0], p[1], p[2], nr, u, v, c, id);
+    }
+  }
+  // Ridge cap.
+  addFlatRoof(gb, inner, [], yR, c, id);
+  return true;
+}
+
 export function buildBuildings(buildings: CampusBuilding[], skip?: (b: CampusBuilding, i: number) => boolean): BuildingGeometries {
-  const styles: Style[] = ["campus", "housing", "house", "minor"];
+  const styles = STYLES;
   const walls = Object.fromEntries(styles.map((s) => [s, new GeoBuilder()])) as Record<Style, GeoBuilder>;
   const roofs = Object.fromEntries(styles.map((s) => [s, new GeoBuilder()])) as Record<Style, GeoBuilder>;
 
@@ -193,17 +325,24 @@ export function buildBuildings(buildings: CampusBuilding[], skip?: (b: CampusBui
     const style = styleOf(b);
     const top = heightOf(b);
     const base = Math.min(b.minHeight, top - 0.5);
+    const hall = isHallStyle(style);
     const wc = pick(WALLS[style], b.housing ?? b.id, 1);
     const rc = pick(ROOFS[style], b.housing ?? b.id, 2);
     // Small per-building brightness jitter so neighbours don't read as one slab.
-    const j = 0.94 + hash01(b.id) * 0.1;
+    const j = hall ? 0.97 + hash01(b.id) * 0.05 : 0.94 + hash01(b.id) * 0.1;
     wc.multiplyScalar(j);
 
-    addWalls(walls[style], b.outer, false, base, top, wc, id);
-    for (const h of b.holes) if (h.length >= 6) addWalls(walls[style], h, true, base, top, wc, id);
+    addWalls(walls[style], b.outer, false, base, top, wc, id, hall);
+    for (const h of b.holes) if (h.length >= 6) addWalls(walls[style], h, true, base, top, wc, id, hall);
 
     const simple = b.holes.length === 0 && b.outer.length <= 16;
-    if (style === "house" && simple && b.type !== "static_caravan") {
+    const metal = style === "pentland" || (style === "lothian" && LOTHIAN_METAL_ROOF.has(b.id));
+    if (metal && b.holes.length === 0) {
+      const mc = style === "lothian" ? new THREE.Color(LOTHIAN_RED) : rc;
+      if (!addSeamRoof(roofs[style], b.outer, top, style === "lothian" ? 2.4 : 3.2, 0.7, mc, id)) {
+        addFlatRoof(roofs[style], b.outer, b.holes, top, mc, id);
+      }
+    } else if (style === "house" && simple && b.type !== "static_caravan") {
       addHipRoof(roofs[style], b.outer, top, Math.min(2.4, Math.sqrt(b.area) * 0.22), rc, id);
     } else if (style === "minor" && b.type === "carport") {
       addFlatRoof(roofs[style], b.outer, [], top, rc, id);
