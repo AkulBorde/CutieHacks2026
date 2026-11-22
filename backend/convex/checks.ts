@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { proposeFor } from "./assignments";
+import { locate } from "./lib/campus";
 import { scan } from "./lib/honesty";
 import { closingLine, deriveStatus } from "./lib/status";
 
@@ -27,13 +28,18 @@ export const listForIncident = query({
       const student = await ctx.db.get(check.studentId);
       const building = student && (await ctx.db.get(student.buildingId));
       if (!student || !building) continue;
+      // Where they said they are, or their dorm if they did not say.
+      const where = locate(check, student, building);
       dots.push({
         checkId: check._id,
         studentName: student.name,
         status: check.status,
         isReal: student.isReal,
-        lat: building.lat,
-        lng: building.lng,
+        lat: where.lat,
+        lng: where.lng,
+        // The 3D campus puts the pin on the building with this name.
+        buildingName: where.buildingName,
+        room: where.room,
       });
     }
     return dots;
@@ -126,6 +132,8 @@ export const markCalling = internalMutation({
       attempts: check.attempts + 1,
       updatedAt: Date.now(),
     });
+    // Nobody was reached, so send someone to their room.
+    if (failed) await proposeFor(ctx, checkId);
   },
 });
 
@@ -167,14 +175,15 @@ export const finishCall = internalMutation({
     // covers duplicates of a no-answer event, since callId is cleared below.
     if (!check || check.callId !== callId) return;
 
-    // One call per student, no redial. Voicemail or a missed call is flagged
-    // for an in-person check.
+    // One call per student, no redial. After voicemail or a missed call a
+    // responder is proposed to check on them in person at their room.
     if (noAnswer) {
       await ctx.db.patch(checkId, {
         status: "no_answer",
         callId: undefined,
         updatedAt: Date.now(),
       });
+      await proposeFor(ctx, checkId);
       return;
     }
 

@@ -1,22 +1,26 @@
 "use client";
 
 // Dispatcher dashboard. Owner: frontend.
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@rollcall/backend/convex/_generated/api";
 import type { Id } from "@rollcall/backend/convex/_generated/dataModel";
 import CounterBar from "@/components/CounterBar";
 import HelpQueue from "@/components/HelpQueue";
 import HonestyCounter from "@/components/HonestyCounter";
-import Legend from "@/components/Legend";
 import LiveFeed from "@/components/LiveFeed";
 import { INCIDENT_LABELS, type IncidentType } from "@/lib/incident";
+import { useWalkingResponders } from "@/lib/useWalkingResponders";
 
-const CampusMap = dynamic(() => import("@/components/CampusMap"), {
+// The 3D campus from /sim, in live mode: it takes the same Convex rows the
+// flat Leaflet map (components/CampusMap.tsx) took. three.js needs `window`,
+// so it only loads in the browser.
+const CampusSim = dynamic(() => import("@/components/simulation/CampusSim"), {
   ssr: false,
   loading: () => (
-    <div className="h-[480px] w-full animate-pulse rounded-lg bg-zinc-100" />
+    <div className="h-[560px] w-full animate-pulse rounded-lg bg-zinc-100" />
   ),
 });
 
@@ -33,6 +37,21 @@ export default function Dashboard() {
   const queue = useQuery(api.assignments.queue, forIncident);
   const call = useQuery(api.checks.currentCall, forIncident);
   const honesty = useQuery(api.checks.honesty, forIncident);
+  const responders = useWalkingResponders(incident?._id);
+
+  // A backend that has not been redeployed yet sends map dots with no room.
+  // The help queue has one for everyone who needs help, so fill those in.
+  // Anyone else shows "room not known" in the 3D view until the backend
+  // sends rooms itself.
+  const dots = useMemo(() => {
+    const queued = new Map((queue ?? []).map((q) => [q.checkId, q]));
+    return (students ?? []).map((s) => {
+      const q = queued.get(s.checkId);
+      return s.room || !q
+        ? s
+        : { ...s, buildingName: q.buildingName, room: q.room };
+    });
+  }, [students, queue]);
 
   const startIncident = useMutation(api.incidents.start);
   const closeIncident = useMutation(api.incidents.close);
@@ -56,14 +75,26 @@ export default function Dashboard() {
       await startIncident({ type: incidentType, buildingIds: selectedIds });
       setSelectedIds([]);
     } catch {
-      setError("Could not start the roll call. Is one already running?");
+      setError("Could not start the bear call. Is one already running?");
     }
   }
 
   return (
     <main className="flex flex-1 flex-col gap-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold">Bear Call</h1>
+        <div className="flex items-center gap-2">
+          {/* The icon file has a transparent margin, so it is drawn a little
+              larger than the title's cap height to read as the same size. */}
+          <Image
+            src="/icon.png"
+            alt=""
+            width={48}
+            height={48}
+            priority
+            className="size-12"
+          />
+          <h1 className="text-2xl font-semibold">Bear Call</h1>
+        </div>
 
         {incident ? (
           <div className="flex flex-wrap items-center gap-3">
@@ -106,7 +137,7 @@ export default function Dashboard() {
               disabled={selectedIds.length === 0 || incident === undefined}
               className="whitespace-nowrap rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
             >
-              Start Roll Call
+              Start Bear Call
             </button>
           </div>
         )}
@@ -122,15 +153,26 @@ export default function Dashboard() {
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="flex flex-col gap-3 lg:col-span-2">
-          <CampusMap
+        <div className="lg:col-span-2">
+          <CampusSim
+            className="h-[560px] w-full rounded-lg"
             buildings={buildings ?? []}
-            students={students ?? []}
+            students={dots}
             // While an incident runs the zone is fixed to its buildings.
             selectedIds={incident ? incident.buildingIds : selectedIds}
-            onToggle={incident ? () => {} : toggleBuilding}
+            onToggle={
+              incident
+                ? () => {}
+                : (id) => toggleBuilding(id as Id<"buildings">)
+            }
+            // Plays the shake once, right as an earthquake roll call starts.
+            incidentStartedAt={
+              incident?.type === "earthquake" ? incident.startedAt : null
+            }
+            // Offered responders stand at their post; accepted ones walk to
+            // their student.
+            responders={responders}
           />
-          <Legend />
         </div>
 
         <div className="flex flex-col gap-4">

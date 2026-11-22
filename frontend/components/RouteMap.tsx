@@ -109,9 +109,11 @@ const ringToPts = (r: number[]): Pt[] => {
 
 // The student's floor plan in lat/lng, from the same campus data and room
 // layout the 3D view uses. Null until loaded, or if the hall isn't mapped.
-function useRoom(buildingName: string, checkId: string, room: string) {
+function useRoom(buildingName: string, checkId: string, room?: string) {
   const [result, setResult] = useState<Room | null>(null);
   useEffect(() => {
+    // No room given: the route ends at the building, not at a guessed room.
+    if (!room) return;
     let cancelled = false;
     fetch("/ucr/campus.json")
       .then((r) => (r.ok ? (r.json() as Promise<CampusData>) : null))
@@ -213,7 +215,7 @@ export default function RouteMap({
   to: LatLng; // the building
   checkId: string;
   buildingName: string;
-  room: string;
+  room?: string;
   label: string;
 }) {
   const [map, setMap] = useState<LeafletMap | null>(null);

@@ -12,7 +12,7 @@ Using real-time location data, student safety check-ins, and interactive 3D camp
 2. **Select Affected Zones:** Dispatchers access an interactive 3D campus map and select the areas affected by the emergency.
 3. **Locate Students:** Bear Call uses students' shared locations to identify who is near the affected zones.
 4. **Send Emergency Alerts:** Students in affected areas receive notifications on their phones.
-5. **Student Check-In:** Students answer five short questions about their safety and current situation.
+5. **Student Check-In:** Students answer up to three short questions about their safety and current situation.
 6. **Identify Students in Need:** Bear Call analyzes responses to identify students requiring assistance. Students who do not respond are flagged as potentially needing help.
 7. **Assign Responders:** Dispatchers review students needing assistance and approve responder assignments.
 8. **3D Responder Navigation:** Responders receive an interactive 3D campus map that guides them directly to students needing help.
@@ -22,7 +22,7 @@ Using real-time location data, student safety check-ins, and interactive 3D camp
 
 | User | What They Do | Platform |
 |---|---|---|
-| Student | Shares their location, receives alerts, and answers five safety questions. | Mobile Web App |
+| Student | Shares their location, receives alerts, and answers up to three safety questions. | Mobile Web App |
 | Dispatcher | Selects affected zones, monitors student check-ins, and approves responder assignments. | Desktop Dashboard |
 | Responder | Accepts assignments and uses 3D navigation to reach students. | Mobile Web App |
 
@@ -31,7 +31,7 @@ Using real-time location data, student safety check-ins, and interactive 3D camp
 - **Interactive 3D Campus Map:** Dispatchers can select specific areas affected by an emergency.
 - **Location Tracking:** Identifies students near affected areas using browser-based location services.
 - **Targeted Emergency Alerts:** Notifies students in affected zones.
-- **Student Safety Check-Ins:** Collects information through five short questions.
+- **Student Safety Check-Ins:** Collects information through up to three short questions.
 - **Automated Risk Identification:** Flags students who report needing help or fail to respond.
 - **Responder Coordination:** Helps dispatchers assign responders to students.
 - **3D Navigation:** Guides responders through campus to students needing assistance.

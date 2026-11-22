@@ -21,6 +21,9 @@ export type Occupant = {
   name: string;
   status: CheckStatus;
   room: string;
+  /** No room is on record. `floor` and `cell` are then only placeholders:
+      the person is listed for the building but not drawn in any room. */
+  roomUnknown?: boolean;
   floor: number;
   cell: Cell;
   isReal: boolean;

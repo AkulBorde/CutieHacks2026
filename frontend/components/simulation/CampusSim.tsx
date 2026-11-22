@@ -322,8 +322,15 @@ export default function CampusSim(props: CampusSimProps) {
     if (!t || !data) return;
     if (t.bid != null && t.bid >= 0) {
       const b = data.buildings[t.bid];
-      const plan = planBuilding(b, parseRoom(s?.room)?.wing ?? "");
-      const { cell, floor } = cellForRoom(plan, s?.room);
+      if (!s?.room) {
+        // No room on record: open the building, not a made-up room in it.
+        const realFloors = [...planBuilding(b).real.keys()].sort((x, y) => x - y);
+        setInspect({ bid: t.bid, floor: realFloors[0] ?? 1, focus: checkId });
+        setGoal({ x: b.center[0], z: b.center[1], y: 0, dist: Math.max(70, Math.sqrt(b.area) * 1.6), steep: true });
+        return;
+      }
+      const plan = planBuilding(b, parseRoom(s.room)?.wing ?? "");
+      const { cell, floor } = cellForRoom(plan, s.room);
       setInspect({ bid: t.bid, floor, focus: checkId });
       setGoal({ x: cell.center[0], z: cell.center[1], y: (floor - 1) * 3.4, dist: 48, steep: true });
     } else {
@@ -408,12 +415,13 @@ export default function CampusSim(props: CampusSimProps) {
       const t = targets.get(st.checkId) as { bid?: number } | undefined;
       if (t?.bid !== inspect.bid) continue;
       const { cell, floor } = cellForRoom(plan, st.room);
-      occupants.push({ checkId: st.checkId, name: st.studentName, status: st.status, room: st.room ?? `${plan.wing}${floor}${cell.label}`, floor, cell, isReal: st.isReal });
+      // Never invent a room: without one the person is listed, not placed.
+      occupants.push({ checkId: st.checkId, name: st.studentName, status: st.status, room: st.room ?? "", roomUnknown: !st.room, floor, cell, isReal: st.isReal });
     }
     if (activePick) {
       occupants.push({ checkId: "you", name: "You", status: "safe", room: activePick.room, floor: activePick.floor, cell: activePick.cell, isReal: true, caption: "Your room" });
     }
-    return { b, plan, occupants };
+    return { b, plan, occupants, placed: occupants.filter((o) => !o.roomUnknown) };
   }, [inspect, data, students, targets, activePick]);
   const canPickHere = pickMode && !!cutaway?.b.housing && !!props.pickable?.includes(cutaway.b.housing);
   // Starting a check-in flies to the zone (once, when it becomes active).
@@ -447,7 +455,7 @@ export default function CampusSim(props: CampusSimProps) {
         {data && <ZoneHighlight data={data} indices={inspect ? zoneIdx.filter((i) => i !== inspect.bid) : zoneIdx} active={incidentActive} />}
         {data && <StudentPins data={data} students={students} halls={halls} onPick={flyToStudent} hideBid={inspect?.bid ?? null} />}
         {cutaway && inspect && (
-          <BuildingInterior building={cutaway.b} plan={cutaway.plan} floor={Math.min(inspect.floor, cutaway.plan.floors)} occupants={cutaway.occupants} focusCheckId={inspect.focus} onPickCell={canPickHere ? pickCell : undefined} />
+          <BuildingInterior building={cutaway.b} plan={cutaway.plan} floor={Math.min(inspect.floor, cutaway.plan.floors)} occupants={cutaway.placed} focusCheckId={inspect.focus} onPickCell={canPickHere ? pickCell : undefined} />
         )}
         {data && <Responders responders={responders} targets={targets} />}
         {data && <HoverLabel data={data} bid={hover} hint={pickMode ? (props.pickable?.includes(data.buildings[hover ?? -1]?.housing ?? "") ? "click to choose" : null) : undefined} />}
@@ -485,6 +493,11 @@ export default function CampusSim(props: CampusSimProps) {
           onPick={(id) => {
             const o = cutaway.occupants.find((x) => x.checkId === id);
             if (!o) return;
+            if (o.roomUnknown) {
+              // Nowhere to fly to; just select them.
+              setInspect((i) => (i ? { ...i, focus: id } : i));
+              return;
+            }
             setInspect((i) => (i ? { ...i, floor: o.floor, focus: id } : i));
             setGoal({ x: o.cell.center[0], z: o.cell.center[1], y: (o.floor - 1) * 3.4, dist: 48, steep: true });
           }}
@@ -591,7 +604,7 @@ function DemoPanel({
               <option value="air_quality">Air quality</option>
             </select>
             <button disabled={!zone.length} onClick={() => demo.start(zone, kind)} className="rounded-md bg-red-600 px-3 py-2 font-semibold hover:bg-red-500 disabled:bg-zinc-700">
-              Start Roll Call
+              Start Bear Call
             </button>
           </div>
         </>
@@ -695,7 +708,7 @@ function InspectPanel({
         <div className={`rounded-lg p-2.5 ${focused.status === "urgent" ? "bg-red-900/80" : focused.status === "needs_help" ? "bg-red-600/80" : "bg-zinc-800"}`}>
           <div className="font-semibold">{focused.name}</div>
           <div className="text-xs opacity-90">
-            Room {focused.room} · floor {focused.floor} · {focused.caption ?? STATUS_LABELS[focused.status]}
+            {focused.roomUnknown ? "Room not known" : `Room ${focused.room} · floor ${focused.floor}`} · {focused.caption ?? STATUS_LABELS[focused.status]}
           </div>
         </div>
       )}
@@ -715,7 +728,7 @@ function InspectPanel({
       </div>
       <div className="flex gap-1">
         {Array.from({ length: floors }, (_, i) => i + 1).map((f) => {
-          const bad = occupants.some((o) => o.floor === f && (o.status === "needs_help" || o.status === "urgent"));
+          const bad = occupants.some((o) => !o.roomUnknown && o.floor === f && (o.status === "needs_help" || o.status === "urgent"));
           return (
             <button key={f} onClick={() => onFloor(f)} className={`flex-1 rounded py-1 text-xs ${f === floor ? "bg-white text-zinc-900" : bad ? "bg-red-700" : "bg-zinc-800 hover:bg-zinc-700"}`}>
               {f}
@@ -733,7 +746,7 @@ function InspectPanel({
               {o.name}
             </span>
             <span className="text-zinc-400">
-              {o.room} · F{o.floor}
+              {o.roomUnknown ? "room not known" : `${o.room} · F${o.floor}`}
             </span>
           </button>
         ))}

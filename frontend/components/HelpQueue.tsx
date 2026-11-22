@@ -4,10 +4,19 @@ import { STATUS_COLORS, STATUS_LABELS } from "@/lib/status";
 // One row of api.assignments.queue.
 export type QueueItem = {
   checkId: Id<"checks">;
-  status: "urgent" | "needs_help";
+  // No answer is in the queue too: someone goes to check on them in person.
+  status: "urgent" | "needs_help" | "no_answer";
   studentName: string;
+  // Where the responder is sent: where the student said they are on the
+  // call, or their dorm room (always the dorm room after no answer). No room
+  // if they only named a building.
   buildingName: string;
-  room: string;
+  room?: string;
+  // Their registered room, when they said they are somewhere else.
+  dorm?: { buildingName: string; room: string };
+  // Their own words, when they named a place that could not be matched to a
+  // building. The building above is only their dorm then.
+  unmatchedLocation?: string;
   // Missing until a responder has been proposed for this check.
   assignment?: {
     id: Id<"assignments">;
@@ -48,8 +57,26 @@ export default function HelpQueue({
                   </span>
                 </p>
                 <p className="text-zinc-500">
-                  {item.buildingName}, room {item.room}
+                  {item.buildingName}
+                  {item.room ? `, room ${item.room}` : ""}
                 </p>
+                {item.status === "no_answer" && (
+                  <p className="text-xs text-zinc-400">
+                    Did not pick up. In-person check at their room.
+                  </p>
+                )}
+                {item.dorm && (
+                  <p className="text-xs text-zinc-400">
+                    Said on the call. Dorm: {item.dorm.buildingName}, room{" "}
+                    {item.dorm.room}
+                  </p>
+                )}
+                {item.unmatchedLocation && (
+                  <p className="text-xs font-medium text-amber-700">
+                    Said &ldquo;{item.unmatchedLocation}&rdquo;, which is not a
+                    building we know. Showing their dorm.
+                  </p>
+                )}
                 <p className="text-zinc-500">
                   {item.assignment
                     ? `${item.assignment.responderName}, about ${item.assignment.etaMinutes} min`
@@ -70,7 +97,10 @@ export default function HelpQueue({
                   <span className="uppercase text-zinc-500">
                     {item.assignment.status}
                   </span>
-                  {item.assignment.status === "offered" &&
+                  {/* Kept after they accept, so the page with the Done
+                      button can be reopened from here. */}
+                  {(item.assignment.status === "offered" ||
+                    item.assignment.status === "accepted") &&
                     item.assignment.offerToken && (
                       <a
                         href={`/r/${item.assignment.offerToken}`}

@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { distanceMeters, etaMinutes } from "../convex/lib/geo.ts";
 import { BANNED_PHRASES, scan } from "../convex/lib/honesty.ts";
-import { closingLine, deriveStatus } from "../convex/lib/status.ts";
+import {
+  closingLine,
+  deriveStatus,
+  dispatchRank,
+  needsResponder,
+} from "../convex/lib/status.ts";
 
 test("deriveStatus", () => {
   assert.equal(deriveStatus({ safe: true }), "safe");
@@ -14,6 +19,18 @@ test("deriveStatus", () => {
   // An unfinished call counts as needs help.
   assert.equal(deriveStatus({}), "needs_help");
   assert.equal(deriveStatus({ location: "Lothian 214" }), "needs_help");
+});
+
+test("who gets a responder, and in what order", () => {
+  for (const status of ["urgent", "needs_help", "no_answer"]) {
+    assert.equal(needsResponder(status), true);
+  }
+  for (const status of ["pending", "calling", "safe"]) {
+    assert.equal(needsResponder(status), false);
+  }
+  // Someone who asked for help is never queued behind a no-answer.
+  assert.ok(dispatchRank("urgent") < dispatchRank("needs_help"));
+  assert.ok(dispatchRank("needs_help") < dispatchRank("no_answer"));
 });
 
 test("closing lines never promise help", () => {

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
+import { proposeFor } from "./assignments";
 
 // The incident the dashboard is showing: the newest active one, or null.
 export const current = query({
@@ -62,6 +63,9 @@ export const start = mutation({
             phone: student.phone!,
             studentName: student.name,
           });
+        } else if (student.isReal) {
+          // No phone to call, so the only way to check is in person.
+          await proposeFor(ctx, checkId);
         }
         // Simulation lane: simulated students (isReal false) stay "pending"
         // until simulator.ts schedules a fake result for them here.

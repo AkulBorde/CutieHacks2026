@@ -126,7 +126,7 @@ export function useDemoIncident(speed = 0.55) {
       setActive(true);
       setStartedAt(Date.now());
       const label = kind.replace("_", " ");
-      log(`Roll Call started: ${label} affecting ${hallNames.join(", ")}. Calling ${dots.length} students.`, "info");
+      log(`Bear Call started: ${label} affecting ${hallNames.join(", ")}. Calling ${dots.length} students.`, "info");
 
       const set = (id: string, status: CheckStatus) =>
         setStudents((list) => list.map((d) => (d.checkId === id ? { ...d, status } : d)));

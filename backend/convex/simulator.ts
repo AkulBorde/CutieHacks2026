@@ -38,8 +38,8 @@ export const simulateResult = internalMutation({
         : "[simulated] No answer.",
       updatedAt: Date.now(),
     });
-    // Same as a real call: needs_help and urgent get the nearest free
-    // responder proposed (proposeFor ignores every other status).
+    // Same as a real call: needs_help, urgent and no_answer get the nearest
+    // free responder proposed (proposeFor ignores every other status).
     await proposeFor(ctx, checkId);
   },
 });
