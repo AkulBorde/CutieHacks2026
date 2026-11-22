@@ -3,8 +3,8 @@
 // Fills in the simulated students so the map resolves during the demo.
 // No phone call is ever placed from this file.
 //
-// incidents.start schedules one of these per simulated student:
-//   ctx.scheduler.runAfter(simulatedDelayMs(checkId), internal.simulator.simulateResult, { checkId });
+// incidents.start schedules one simulateResult per simulated student, after
+// simulatedDelayMs(checkId).
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { proposeFor } from "./assignments";
@@ -20,6 +20,10 @@ export const simulateResult = internalMutation({
     // Only fill in checks that are still waiting; never touch a real call.
     if (!check || check.source !== "simulated") return;
     if (check.status !== "pending" && check.status !== "calling") return;
+    // The incident may have been ended before this fired. A result now would
+    // propose a responder for a closed incident and hold them out of the next.
+    const incident = await ctx.db.get(check.incidentId);
+    if (incident?.status !== "active") return;
     const student = await ctx.db.get(check.studentId);
     if (!student || student.isReal) return;
     const building = await ctx.db.get(student.buildingId);

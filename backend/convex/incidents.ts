@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { proposeFor } from "./assignments";
+import { simulatedDelayMs } from "./lib/simData";
 
 // The incident the dashboard is showing: the newest active one, or null.
 export const current = query({
@@ -66,9 +67,15 @@ export const start = mutation({
         } else if (student.isReal) {
           // No phone to call, so the only way to check is in person.
           await proposeFor(ctx, checkId);
+        } else {
+          // Simulated students are never called. Each gets a made-up result
+          // 4 to 40 seconds in, so the map fills in the way real calls would.
+          await ctx.scheduler.runAfter(
+            simulatedDelayMs(checkId),
+            internal.simulator.simulateResult,
+            { checkId },
+          );
         }
-        // Simulation lane: simulated students (isReal false) stay "pending"
-        // until simulator.ts schedules a fake result for them here.
       }
     }
 
