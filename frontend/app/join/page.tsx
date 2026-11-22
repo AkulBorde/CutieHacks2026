@@ -8,20 +8,23 @@ export default function JoinPage() {
   return (
     <div className="grid flex-1 place-items-center bg-[#90b6db] p-4 text-[#18334D] sm:p-6">
       <main className="w-full max-w-[860px] rounded-[20px] bg-white p-6 sm:p-10">
-        <header>
+        <header className="flex items-center gap-4 sm:gap-6">
           <Image
             src="/icon.png"
             alt="Bear Call logo"
-            width={110}
-            height={110}
+            width={160}
+            height={160}
             priority
+            className="h-20 w-20 shrink-0 sm:h-36 sm:w-36"
           />
-          <h1 className="mt-1 mb-1 text-[38px] font-bold text-[#102a43]">
-            Bear Call
-          </h1>
-          <p className="text-lg font-bold tracking-[2px] text-slate-500">
-            CAMPUS SAFETY CHECK IN
-          </p>
+          <div>
+            <h1 className="text-[40px] leading-none font-extrabold tracking-tight text-[#102a43] sm:text-[60px]">
+              Bear Call
+            </h1>
+            <p className="mt-2 text-base font-semibold whitespace-nowrap text-[#4a6a8a] sm:mt-3 sm:text-2xl">
+              Campus safety check-in
+            </p>
+          </div>
         </header>
 
         <section className="mt-5">
