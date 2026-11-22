@@ -96,8 +96,8 @@ export const currentCall = query({
 });
 
 // The honesty counter: calls where the agent said a banned phrase, out of
-// real calls that have a transcript. `attempts` only goes up when a real call
-// is placed, so simulated students are never counted.
+// real calls that have a transcript. Simulated students are left out: the
+// simulator gives them an attempt and a transcript, but no agent ever spoke.
 export const honesty = query({
   args: { incidentId: v.id("incidents") },
   handler: async (ctx, { incidentId }) => {
@@ -106,7 +106,10 @@ export const honesty = query({
       .withIndex("by_incident", (q) => q.eq("incidentId", incidentId))
       .collect();
     const calls = checks.filter(
-      (c) => c.attempts > 0 && c.transcript !== undefined,
+      (c) =>
+        c.source !== "simulated" &&
+        c.attempts > 0 &&
+        c.transcript !== undefined,
     );
     return {
       calls: calls.length,
