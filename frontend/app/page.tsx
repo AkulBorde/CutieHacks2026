@@ -1,7 +1,7 @@
 "use client";
 
 // Dispatcher dashboard. Owner: frontend.
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@rollcall/backend/convex/_generated/api";
@@ -37,6 +37,20 @@ export default function Dashboard() {
   const call = useQuery(api.checks.currentCall, forIncident);
   const honesty = useQuery(api.checks.honesty, forIncident);
   const responders = useWalkingResponders(incident?._id);
+
+  // A backend that has not been redeployed yet sends map dots with no room.
+  // The help queue has one for everyone who needs help, so fill those in.
+  // Anyone else shows "room not known" in the 3D view until the backend
+  // sends rooms itself.
+  const dots = useMemo(() => {
+    const queued = new Map((queue ?? []).map((q) => [q.checkId, q]));
+    return (students ?? []).map((s) => {
+      const q = queued.get(s.checkId);
+      return s.room || !q
+        ? s
+        : { ...s, buildingName: q.buildingName, room: q.room };
+    });
+  }, [students, queue]);
 
   const startIncident = useMutation(api.incidents.start);
   const closeIncident = useMutation(api.incidents.close);
@@ -130,7 +144,7 @@ export default function Dashboard() {
           <CampusSim
             className="h-[560px] w-full rounded-lg"
             buildings={buildings ?? []}
-            students={students ?? []}
+            students={dots}
             // While an incident runs the zone is fixed to its buildings.
             selectedIds={incident ? incident.buildingIds : selectedIds}
             onToggle={
